@@ -14,7 +14,7 @@ Ambiente para simulação de um cliente OCPP 1.6 e testes de transações com o 
 git clone https://github.com/seuusuario/ocpp-test-env.git
 cd ocpp-test-env
 python -m venv venv
-source venv/bin/activate  # ou venv\Scripts\activate no Windows
+source venv/bin/activate  
 pip install -r requirements.txt
 cp config/.env.example config/.env
 # Edite config/.env com suas configurações

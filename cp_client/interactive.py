@@ -172,7 +172,7 @@ class InteractiveHandler:
         if args and scenario_name == "min_cycle":
             kwargs['id_tag'] = args[0]  # pode ser string
 
-        print(f"\n📋 Executando cenário '{scenario_name}'")
+        print(f"\n>     Executando cenário '{scenario_name}'")
         if kwargs:
             print(f"   Parâmetros: {kwargs}")
 
@@ -180,9 +180,9 @@ class InteractiveHandler:
             success = await scenario.execute(self.cp, **kwargs)
 
             if success:
-                print(f"Transação #{self.transaction_counter} concluída com sucesso!")
+                print(f"-   Transação #{self.transaction_counter} concluída com sucesso!")
             else:
-                print(f"Transação #{self.transaction_counter} falhou.")
+                print(f"-   Transação #{self.transaction_counter} falhou.")
 
         except Exception as e:
             logger.error(f"Erro na execução do cenário: {e}", exc_info=True)
@@ -197,7 +197,7 @@ class InteractiveHandler:
             print(f"  Registrado: {'OK' if self.cp.registered else 'X'}")
             print(f"  Transação ativa: {self.cp._transaction_id if self.cp._transaction_id else 'Nenhuma'}")
         else:
-            print("!! Posto desconectado do servidor !!")
+            print("!!! Posto desconectado do servidor !!!")
 
         print(f"  Total transações: {self.transaction_counter}")
         print(f"\n  Cenários disponíveis:")
