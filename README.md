@@ -13,7 +13,7 @@ Ambiente para simulação de um cliente OCPP 1.6 e testes de transações com o 
 ```bash
 git clone https://github.com/a194117/client_ocpp16_test_env.git
 cd ocpp-test-env
-python -m venv venv
+python3 -m venv venv
 source venv/bin/activate  
 pip install -r requirements.txt
 cp config/.env.example config/.env
