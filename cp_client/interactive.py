@@ -185,8 +185,8 @@ class InteractiveHandler:
                 print(f"-   Transação #{self.transaction_counter} falhou.")
 
         except Exception as e:
-            logger.error(f"Erro na execução do cenário: {e}", exc_info=True)
-            print(f"❌ Erro durante execução: {e}")
+            logger.error(f" Erro na execução do cenário: {e}", exc_info=True)
+            print(f" Erro durante execução: {e}")
 
     async def _show_status(self):
         """Mostra status atual do sistema."""
