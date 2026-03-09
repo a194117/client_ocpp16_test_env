@@ -32,11 +32,28 @@ class ChargePoint(BaseChargePoint):
         if self.registered:
             logger.debug("BootNotification ja foi aceito anteriormente")
             return True
+            
+        boot_kwargs = {
+            "charge_point_model": settings.charge_point_model,
+            "charge_point_vendor": settings.charge_point_vendor,
+        }    
+        if settings.charge_box_serial_number:
+            boot_kwargs["charge_box_serial_number"] = settings.charge_box_serial_number
+        if settings.charge_point_serial_number:
+            boot_kwargs["charge_point_serial_number"] = settings.charge_point_serial_number
+        if settings.firmware_version:
+            boot_kwargs["firmware_version"] = settings.firmware_version
+        if settings.iccid:
+            boot_kwargs["iccid"] = settings.iccid
+        if settings.imsi:
+            boot_kwargs["imsi"] = settings.imsi
+        if settings.meter_serial_number:
+            boot_kwargs["meter_serial_number"] = settings.meter_serial_number
+        if settings.meter_type:
+            boot_kwargs["meter_type"] = settings.meter_type
 
-        request = call.BootNotification(
-            charge_point_model=settings.cp_model,
-            charge_point_vendor=settings.cp_vendor
-        )
+        request = call.BootNotification(**boot_kwargs)
+        
         try:
             response = await self.call(request)
 
