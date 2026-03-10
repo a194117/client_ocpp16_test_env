@@ -2,6 +2,7 @@
 import asyncio
 import signal
 import logging
+
 from cp_client.client import run_charge_point_with_reconnect
 from cp_client.interactive import InteractiveHandler
 from cp_client.base import setup_logger

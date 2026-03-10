@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from cp_client.client import ChargePoint
 from config.settings import settings
+from store.state import state
 from .base import Scenario
 
 class MinCycleScenario(Scenario):
@@ -19,7 +20,7 @@ class MinCycleScenario(Scenario):
         # Obtém o id_tag dos argumentos nomeados (com fallback para settings)
         id_tag = kwargs.get('id_tag', settings.id_tag)
 
-        if not cp.registered:
+        if not state.registration:
             return False
 
         # 1. Authorize
@@ -30,21 +31,21 @@ class MinCycleScenario(Scenario):
 
         # 2. StartTransaction
         now = datetime.now(timezone.utc)
-        transaction_id = await cp.start_transaction(id_tag, meter_start=1000, timestamp=now)
+        transaction_id = await cp.start_transaction(id_tag, meter_start=1000)
         if not transaction_id:
             return False
 
         # 3. MeterValues durante a transação
         await asyncio.sleep(2)
         now2 = datetime.now(timezone.utc)
-        await cp.send_meter_values(transaction_id, meter_value=1010, timestamp=now2)
+        await cp.send_meter_values(transaction_id, meter_value=1010)
 
         await asyncio.sleep(2)
         now3 = datetime.now(timezone.utc)
-        await cp.send_meter_values(transaction_id, meter_value=1020, timestamp=now3)
+        await cp.send_meter_values(transaction_id, meter_value=1020)
 
         # 4. StopTransaction
         now4 = datetime.now(timezone.utc)
-        await cp.stop_transaction(transaction_id, meter_stop=1030, timestamp=now4, id_tag=id_tag)
+        await cp.stop_transaction(transaction_id, meter_stop=1030, id_tag=id_tag)
 
         return True

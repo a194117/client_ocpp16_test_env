@@ -9,6 +9,8 @@ from scenarios.base import Scenario
 from scenarios.min_cycle import MinCycleScenario
 from .base import setup_logger
 
+from store.state import state
+
 logger = setup_logger("interactive")  # <-- agora usa setup_logger
 
 class InteractiveHandler:
@@ -160,7 +162,7 @@ class InteractiveHandler:
         if self.cp is None:
             print("Posto não está conectado ao servidor. Aguarde reconexão.")
             return
-        if not self.cp.registered:
+        if not state.registration:
             print("Posto não está registrado (BootNotification pendente).")
             return
 
@@ -194,7 +196,7 @@ class InteractiveHandler:
         if self.cp:
             print(f"  Station ID: {self.cp.station_id}")
             print(f"  Connector ID: {self.cp.connector_id}")
-            print(f"  Registrado: {'OK' if self.cp.registered else 'X'}")
+            print(f"  Registrado: {'OK' if state.registration else 'X'}")
             print(f"  Transação ativa: {self.cp._transaction_id if self.cp._transaction_id else 'Nenhuma'}")
         else:
             print("!!! Posto desconectado do servidor !!!")

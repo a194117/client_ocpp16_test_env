@@ -1,14 +1,17 @@
 # store/state.py
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
+from datetime import datetime, timezone, timedelta
+
 import threading
 from functools import wraps
 from typing import List
+
 from ocpp.v16 import enums
 from ocpp.v16 import datatypes  # importa as dataclasses fornecidas
 
 def locked(func):
     """
-    Define o decorator que recebe a função original (func) como argumento.  Em vez de escrever with self._lock dentro de cada método, o decorator faz isso automaticamente.
+    decorador personalizado que envolve uma função para adquirir o lock antes de executá-la.
     """
     @wraps(func)
     def wrapper(self, *args, **kwargs):
@@ -26,11 +29,18 @@ class ChargePointState:
     """
     Estado global do Charge Point.
     """
+    
     # Status básico do CP
+    registration: enums.ChargePointStatus | None = None
     status: enums.ChargePointStatus = enums.ChargePointStatus.available
     error_code: enums.ChargePointErrorCode = enums.ChargePointErrorCode.no_error
     info: str | None = None
-
+    
+    # Relógio Interno para sincronização com o servidor
+    heartbeat_interval: int | None = None
+    server_current_time: str | None = None
+    time_offset: float = 0.0
+    
     # Lista de autorizações locais (local auth list)
     local_auth_list: List[datatypes.AuthorizationData] = field(default_factory=list)
     local_auth_list_version: int = 0
@@ -51,6 +61,7 @@ class ChargePointState:
 
     # ... adicione outros atributos conforme necessário
 
+    # Objeto de sincronização para controle de concorrência em programas com múltiplas threads
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     # Controla se a escrita está autorizada no momento
     _allow_write: bool = field(default=False, init=False, repr=False)
@@ -101,12 +112,30 @@ class ChargePointState:
         default_instance = self.__class__()
         
         for f in fields(self):
-            # Para não perder a referência ao _lock de cada propriedade!
-            if f.name == "_lock":
+            if f.name in ("_lock", "_allow_write"):
                 continue
                 
             val = getattr(default_instance, f.name)
             setattr(self, f.name, val)
+            
+    @locked
+    def update_time_from_server(self, server_time_iso: str):
+        """
+        Método que garante a sincronicidade entre o relógio do servidor e o relógio virtual do cliente ocpp
+        """
+        server_time = datetime.fromisoformat(server_time_iso.replace('Z', '+00:00'))
+        local_time = datetime.now(timezone.utc)
+        self.time_offset = (server_time - local_time).total_seconds()
+        self.server_current_time = server_time_iso
+    
+    def get_current_time(self) -> datetime:
+        """Retorna a hora atual ajustada pelo offset (se desejado)."""
+        ts = datetime.now(timezone.utc) + timedelta(seconds=self.time_offset)
+        iso_ts = ts.isoformat(timespec='milliseconds').replace("+00:00", "Z")
+
+        return iso_ts
+
+
 
 
 

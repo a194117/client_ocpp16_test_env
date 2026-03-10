@@ -1,7 +1,7 @@
 # cp_client/client.py
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import timezone
 from typing import Optional, Callable, Awaitable
 
 import websockets
@@ -9,6 +9,7 @@ from ocpp.v16 import ChargePoint as BaseChargePoint
 from ocpp.v16 import call
 from ocpp.v16.enums import RegistrationStatus, AuthorizationStatus
 
+from store.state import state
 from config.settings import settings
 from .base import setup_logger
 
@@ -19,7 +20,6 @@ class ChargePoint(BaseChargePoint):
         super().__init__(station_id, connection, response_timeout)
         self.station_id = station_id
         self.connector_id = settings.connector_id
-        self.registered = False
         self._transaction_id: Optional[int] = None
         self._stop_requested = False
 
@@ -29,7 +29,7 @@ class ChargePoint(BaseChargePoint):
 
     async def send_boot_notification(self) -> bool:
         """Envia BootNotification e aguarda aceitação."""
-        if self.registered:
+        if state.registration:
             logger.debug("BootNotification ja foi aceito anteriormente")
             return True
             
@@ -57,16 +57,20 @@ class ChargePoint(BaseChargePoint):
         try:
             response = await self.call(request)
 
-            if response.status == RegistrationStatus.accepted:
-                logger.info("BootNotification aceito", extra={"station_id": self.station_id})
-                self.registered = True
-                return True
-            else:
-                logger.warning(f"BootNotification rejeitado: {response.status}",
-                               extra={"station_id": self.station_id})
-                              
-                return False
+            try:
+                state.update(registration=response.status)
+                state.update(heartbeat_interval = response.interval if response.interval else heartbeat_interval)
                 
+                if state.registration == RegistrationStatus.accepted:
+                    state.update_time_from_server(response.current_time)
+                    return True
+                    
+                else:          
+                    return False
+            
+            except ValueError:
+                raise Exception(f"'{response.status}' não é um estado de registro válido.")
+                               
         except Exception as e:
             logger.error(f"Erro no BootNotification: {e}", extra={"station_id": self.station_id})
             return False
@@ -86,12 +90,13 @@ class ChargePoint(BaseChargePoint):
             logger.error(f"Erro durante Authorize para idTag {id_tag}: {e}", extra={"station_id": self.station_id})
             return False
 
-    async def start_transaction(self, id_tag: str, meter_start: int, timestamp: datetime) -> Optional[int]:
+    async def start_transaction(self, id_tag: str, meter_start: int) -> Optional[int]:
+        timestamp = state.get_current_time()
         request = call.StartTransaction(
             connector_id=self.connector_id,
             id_tag=id_tag,
             meter_start=meter_start,
-            timestamp=timestamp.isoformat()
+            timestamp=timestamp
         )
         try:
             response = await self.call(request)
@@ -112,9 +117,10 @@ class ChargePoint(BaseChargePoint):
             logger.error(f"Erro no StartTransaction: {e}", extra={"station_id": self.station_id})
             return None
 
-    async def send_meter_values(self, transaction_id: int, meter_value: int, timestamp: datetime):
+    async def send_meter_values(self, transaction_id: int, meter_value: int):
+        timestamp = state.get_current_time()
         meter_value_entry = {
-            "timestamp": timestamp.isoformat(),
+            "timestamp": timestamp,
             "sampledValue": [{"value": str(meter_value), "measurand": "Energy.Active.Import.Register"}]
         }
         request = call.MeterValues(
@@ -133,11 +139,12 @@ class ChargePoint(BaseChargePoint):
         except Exception as e:
             logger.error(f"Erro no MeterValues: {e}", extra={"station_id": self.station_id, "transaction_id": transaction_id})
 
-    async def stop_transaction(self, transaction_id: int, meter_stop: int, timestamp: datetime, id_tag: Optional[str] = None):
+    async def stop_transaction(self, transaction_id: int, meter_stop: int, id_tag: Optional[str] = None):
+        timestamp = state.get_current_time()
         request = call.StopTransaction(
             transaction_id=transaction_id,
             meter_stop=meter_stop,
-            timestamp=timestamp.isoformat(),
+            timestamp=timestamp,
             id_tag=id_tag
         )
         try:
