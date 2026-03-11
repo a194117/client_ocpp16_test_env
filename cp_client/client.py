@@ -61,12 +61,11 @@ class ChargePoint(BaseChargePoint):
                 state.update(registration=response.status)
                 state.update(heartbeat_interval = response.interval if response.interval else heartbeat_interval)
                 
-                if state.registration == RegistrationStatus.accepted:
+                if state.registration == RegistrationStatus.rejected:
+                    return False
+                else:          
                     state.update_time_from_server(response.current_time)
                     return True
-                    
-                else:          
-                    return False
             
             except ValueError:
                 raise Exception(f"'{response.status}' não é um estado de registro válido.")
@@ -77,44 +76,52 @@ class ChargePoint(BaseChargePoint):
             
 
     async def authorize(self, id_tag: str) -> bool:
-        request = call.Authorize(id_tag=id_tag)
-        try:
-            response = await self.call(request)
-            if response.id_tag_info.get("status") == AuthorizationStatus.accepted:
-                logger.info(f"Authorize aceito para idTag {id_tag}", extra={"station_id": self.station_id})
-                return True
-            else:
-                logger.warning(f"Authorize rejeitado: {response.id_tag_info}", extra={"station_id": self.station_id})
+        if state.registration == RegistrationStatus.accepted:
+            request = call.Authorize(id_tag=id_tag)
+            try:
+                response = await self.call(request)
+                if response.id_tag_info.get("status") == AuthorizationStatus.accepted:
+                    logger.info(f"Authorize aceito para idTag {id_tag}", extra={"station_id": self.station_id})
+                    return True
+                else:
+                    logger.warning(f"Authorize rejeitado: {response.id_tag_info}", extra={"station_id": self.station_id})
+                    return False
+            except Exception as e:
+                logger.error(f"Erro durante Authorize para idTag {id_tag}: {e}", extra={"station_id": self.station_id})
                 return False
-        except Exception as e:
-            logger.error(f"Erro durante Authorize para idTag {id_tag}: {e}", extra={"station_id": self.station_id})
+        else : 
+            logger.warning(f"O Registro do CP não foi aceito, Authorize não pode ser enviado:", extra={"station_id": self.station_id})
             return False
 
     async def start_transaction(self, id_tag: str, meter_start: int) -> Optional[int]:
-        timestamp = state.get_current_time()
-        request = call.StartTransaction(
-            connector_id=self.connector_id,
-            id_tag=id_tag,
-            meter_start=meter_start,
-            timestamp=timestamp
-        )
-        try:
-            response = await self.call(request)
-            if response.id_tag_info.get("status") == AuthorizationStatus.accepted:
-                transaction_id = response.transaction_id
-                self._transaction_id = transaction_id
-                logger.info(f"Transacao iniciada", extra={
-                    "station_id": self.station_id,
-                    "connector_id": self.connector_id,
-                    "transaction_id": transaction_id,
-                    "id_tag": id_tag
-                })
-                return transaction_id
-            else:
-                logger.warning(f"Falha ao iniciar transacao: {response.id_tag_info}", extra={"station_id": self.station_id})
+        if state.registration == RegistrationStatus.accepted:
+            timestamp = state.get_current_time()
+            request = call.StartTransaction(
+                connector_id=self.connector_id,
+                id_tag=id_tag,
+                meter_start=meter_start,
+                timestamp=timestamp
+            )
+            try:
+                response = await self.call(request)
+                if response.id_tag_info.get("status") == AuthorizationStatus.accepted:
+                    transaction_id = response.transaction_id
+                    self._transaction_id = transaction_id
+                    logger.info(f"Transacao iniciada", extra={
+                        "station_id": self.station_id,
+                        "connector_id": self.connector_id,
+                        "transaction_id": transaction_id,
+                        "id_tag": id_tag
+                    })
+                    return transaction_id
+                else:
+                    logger.warning(f"Falha ao iniciar transacao: {response.id_tag_info}", extra={"station_id": self.station_id})
+                    return None
+            except Exception as e:
+                logger.error(f"Erro no StartTransaction: {e}", extra={"station_id": self.station_id})
                 return None
-        except Exception as e:
-            logger.error(f"Erro no StartTransaction: {e}", extra={"station_id": self.station_id})
+        else : 
+            logger.warning(f"O Registro do CP não foi aceito, transacao nao pode ser iniciada:", extra={"station_id": self.station_id})
             return None
 
     async def send_meter_values(self, transaction_id: int, meter_value: int):
