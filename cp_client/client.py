@@ -7,7 +7,7 @@ from typing import Optional, Callable, Awaitable
 import websockets
 from ocpp.v16 import ChargePoint as BaseChargePoint
 from ocpp.v16 import call
-from ocpp.v16.enums import RegistrationStatus, AuthorizationStatus
+from ocpp.v16.enums import RegistrationStatus, AuthorizationStatus, ChargePointStatus, ChargePointErrorCode
 
 from store.state import state
 from config.settings import settings
@@ -19,7 +19,7 @@ class ChargePoint(BaseChargePoint):
     def __init__(self, station_id: str, connection, response_timeout=30):
         super().__init__(station_id, connection, response_timeout)
         self.station_id = station_id
-        self.connector_id = settings.connector_id
+        self.connector_id = 1
         self._transaction_id: Optional[int] = None
         self._stop_requested = False
 
@@ -80,9 +80,9 @@ class ChargePoint(BaseChargePoint):
         """
 
         status_kwargs = {
-            "connectorId": connector_id, 
+            "connector_id": connector_id, 
             "status": status, 
-            "errorCode": error_code,
+            "error_code": error_code,
         }    
         if timestamp:
             status_kwargs["timestamp"] = timestamp
@@ -251,9 +251,9 @@ async def run_charge_point_with_reconnect(
                         
                     # Envia StatusNotification para o CP
                     await cp.send_status_notification(
-                            connector_id=0,
-                            status=state.status,
-                            error_code=state.error_code
+                        connector_id=0, 
+                        status=state.status,
+                        error_code=state.error_code
                     )
                     
                     # Inicializa os conectores na store global

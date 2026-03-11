@@ -152,7 +152,7 @@ class ChargePointState:
         connector_id: int,
         status: enums.ChargePointStatus,
         error_code: enums.ChargePointErrorCode = enums.ChargePointErrorCode.no_error,
-        info: Optional[str] = None
+        info: str | None = None
     ):
         """
         Atualiza o estado de um conector específico.

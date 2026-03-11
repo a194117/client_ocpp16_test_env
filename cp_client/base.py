@@ -55,6 +55,6 @@ def setup_logger(name, log_to_console=False):
         logger.addHandler(console_handler)
     
     from config.settings import settings
-    logger.addFilter(ContextFilter(settings.station_id, settings.connector_id))
+    logger.addFilter(ContextFilter(settings.station_id, settings.connectors_qty))
     
     return logger
