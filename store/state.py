@@ -23,6 +23,17 @@ def locked(func):
             finally:
                 self._allow_write = False
     return wrapper
+    
+    
+@dataclass
+class ConnectorState:
+    """Estado de um conector individual."""
+    connector_id: int
+    status: enums.ChargePointStatus = enums.ChargePointStatus.available
+    error_code: enums.ChargePointErrorCode = enums.ChargePointErrorCode.no_error
+    info: str | None = None
+    timestamp: datetime | None = None,
+
 
 @dataclass
 class ChargePointState:
@@ -35,6 +46,10 @@ class ChargePointState:
     status: enums.ChargePointStatus = enums.ChargePointStatus.available
     error_code: enums.ChargePointErrorCode = enums.ChargePointErrorCode.no_error
     info: str | None = None
+    
+    # Conectores
+    connectors_qty: int = 0
+    connectors: List[ConnectorState] = field(default_factory=list)  
     
     # Relógio Interno para sincronização com o servidor
     heartbeat_interval: int | None = None
@@ -118,6 +133,41 @@ class ChargePointState:
             val = getattr(default_instance, f.name)
             setattr(self, f.name, val)
             
+    
+    @locked
+    def initialize_connectors(self, qty: int):
+        """
+        Inicializa a lista de conectores com estado padrão (Available, NoError).
+        Deve ser chamado após a leitura da configuração e antes do primeiro StatusNotification.
+        Os IDs dos conectores serão de 1 a qty.
+        """
+        self.connectors.clear()
+        self.connectors_qty = qty
+        for i in range(1, qty + 1):
+            self.connectors.append(ConnectorState(connector_id=i))
+
+    @locked
+    def update_connector_status(
+        self,
+        connector_id: int,
+        status: enums.ChargePointStatus,
+        error_code: enums.ChargePointErrorCode = enums.ChargePointErrorCode.no_error,
+        info: Optional[str] = None
+    ):
+        """
+        Atualiza o estado de um conector específico.
+        Se o conector não existir, levanta ValueError.
+        """
+        for conn in self.connectors:
+            if conn.connector_id == connector_id:
+                conn.status = status
+                conn.error_code = error_code
+                conn.info = info
+                conn.timestamp = self.get_current_time()
+                return
+        raise ValueError(f"Connector {connector_id} não encontrado")
+        
+            
     @locked
     def update_time_from_server(self, server_time_iso: str):
         """
@@ -134,9 +184,6 @@ class ChargePointState:
         iso_ts = ts.isoformat(timespec='milliseconds').replace("+00:00", "Z")
 
         return iso_ts
-
-
-
 
 
 # Criamos uma única instância global deste estado

@@ -74,6 +74,33 @@ class ChargePoint(BaseChargePoint):
             logger.error(f"Erro no BootNotification: {e}", extra={"station_id": self.station_id})
             return False
             
+    async def send_status_notification(self, connector_id: int, status: ChargePointStatus, error_code: ChargePointErrorCode, timestamp:  str | None = None, info:  str | None = None, vendor_id:  str | None = None, vendor_error_code:  str | None = None ):
+        """
+        Envia uma mensagem StatusNotification para um conector específico.
+        """
+
+        status_kwargs = {
+            "connectorId": connector_id, 
+            "status": status, 
+            "errorCode": error_code,
+        }    
+        if timestamp:
+            status_kwargs["timestamp"] = timestamp
+        if info:
+            status_kwargs["info"] = info
+        if vendor_id:
+            status_kwargs["vendor_id"] = vendor_id
+        if vendor_error_code:
+            status_kwargs["vendor_error_code"] = vendor_error_code
+
+        request = call.StatusNotification(**status_kwargs)
+
+        try:
+            response = await self.call(request)
+            logger.info(f"StatusNotification enviado para conector {connector_id}: {status.value}", extra={"station_id": self.station_id})
+        except Exception as e: 
+            logger.error(f"Falha ao enviar StatusNotification para conector {connector_id}: {e}",extra={"station_id": self.station_id})
+
 
     async def authorize(self, id_tag: str) -> bool:
         if state.registration == RegistrationStatus.accepted:
@@ -220,6 +247,26 @@ async def run_charge_point_with_reconnect(
                             pass
                         await ws.close()
                         continue  # Tenta reconectar
+                        
+                        
+                    # Envia StatusNotification para o CP
+                    await cp.send_status_notification(
+                            connector_id=0,
+                            status=state.status,
+                            error_code=state.error_code
+                    )
+                    
+                    # Inicializa os conectores na store global
+                    state.initialize_connectors(settings.connectors_qty)
+
+                    # Envia StatusNotification para cada conector
+                    for connector in state.connectors:
+                        await cp.send_status_notification(
+                            connector_id=connector.connector_id,
+                            status=connector.status,
+                            error_code=connector.error_code,
+                            info=connector.info
+                        )
 
                     # Notifica conexão estabelecida
                     if on_connect:

@@ -8,9 +8,8 @@ class Settings(BaseSettings):
     
     # Charge Point 
     station_id: str = Field("CP_1", env="STATION_ID")
-    connector_id: int = Field(1, env="CONNECTOR_ID")
-    charge_point_model: str = Field(None, env="CHARGE_POINT_MODEL")
-    charge_point_vendor: str = Field(None, env="CHARGE_POINT_VENDOR")
+    charge_point_model: str = Field("Annon_Model", env="CHARGE_POINT_MODEL")
+    charge_point_vendor: str = Field("Annon_Vendor", env="CHARGE_POINT_VENDOR")
     charge_point_serial_number: str | None = Field(None, env="CHARGE_POINT_SERIAL_NUMBER")
     charge_box_serial_number: str | None = Field(None, env="CHARGE_BOX_SERIAL_NUMBER")
     firmware_version: str | None = Field(None, env="FIRMWARE_VERSION")
@@ -18,6 +17,9 @@ class Settings(BaseSettings):
     imsi: str | None = Field(None, env="IMSI")
     meter_serial_number: str | None = Field(None, env="METER_SERIAL_NUMBER")
     meter_type: str | None = Field(None, env="METER_TYPE")
+    
+    # Connectors
+    connectors_qty: int = Field(1, env="CONNECTORS_QTY")
     
     # Vehicle
     id_tag: str = Field("CARD123", env="ID_TAG")
