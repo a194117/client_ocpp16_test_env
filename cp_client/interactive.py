@@ -195,7 +195,7 @@ class InteractiveHandler:
         print(f"\nStatus do Sistema:")
         if self.cp:
             print(f"  Station ID: {self.cp.station_id}")
-            print(f"  Connectors QTY: {state.connectors_qty}")
+            print(f"  Qtd Conectores: {state.connectors_qty}")
             print(f"  Registrado: {'OK' if state.registration else 'X'}")
             print(f"  Transação ativa: {self.cp._transaction_id if self.cp._transaction_id else 'Nenhuma'}")
         else:

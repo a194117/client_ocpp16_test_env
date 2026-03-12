@@ -6,14 +6,12 @@ from pythonjsonlogger import jsonlogger
 
 class ContextFilter(logging.Filter):
     """Adiciona campos fixos (station_id, connector_id) a todos os logs."""
-    def __init__(self, station_id, connector_id):
+    def __init__(self, station_id):
         super().__init__()
         self.station_id = station_id
-        self.connector_id = connector_id
 
     def filter(self, record):
         record.station_id = self.station_id
-        record.connector_id = self.connector_id
         return True
 
 def setup_logger(name, log_to_console=False):
@@ -43,7 +41,7 @@ def setup_logger(name, log_to_console=False):
     file_handler.setLevel(logging.INFO)
     
     formatter = jsonlogger.JsonFormatter(
-        '%(asctime)s %(name)s %(levelname)s %(message)s %(station_id)s %(connector_id)s %(transaction_id)s'
+        '%(asctime)s %(name)s %(levelname)s %(message)s %(station_id)s %(transaction_id)s'
     )
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
@@ -55,6 +53,6 @@ def setup_logger(name, log_to_console=False):
         logger.addHandler(console_handler)
     
     from config.settings import settings
-    logger.addFilter(ContextFilter(settings.station_id, settings.connectors_qty))
+    logger.addFilter(ContextFilter(settings.station_id))
     
     return logger

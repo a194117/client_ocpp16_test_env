@@ -59,7 +59,7 @@ class ChargePoint(BaseChargePoint):
 
             try:
                 state.update(registration=response.status)
-                state.update(heartbeat_interval = response.interval if response.interval else heartbeat_interval)
+                state.update(heartbeat_interval = response.interval if response.interval else settings.heartbeat_interval)
                 
                 if state.registration == RegistrationStatus.rejected:
                     return False
@@ -194,16 +194,22 @@ class ChargePoint(BaseChargePoint):
             logger.error(f"Erro no StopTransaction: {e}", extra={"station_id": self.station_id, "transaction_id": transaction_id})
 
     async def send_heartbeat(self):
-        """Envia Heartbeat periodicamente."""
-        while not self._stop_requested:
-            await asyncio.sleep(settings.heartbeat_interval)
-            try:
-                request = call.Heartbeat()
-                response = await self.call(request)
-                logger.debug("Heartbeat enviado", extra={"station_id": self.station_id})
-            except Exception as e:
-                logger.warning(f"Falha no heartbeat: {e}", extra={"station_id": self.station_id})
-                break
+        """Envia Heartbeat periodicamente, usando o intervalo definido pelo servidor."""
+        try:
+            while not self._stop_requested:
+                await asyncio.sleep(state.heartbeat_interval)
+                try:
+                    request = call.Heartbeat()
+                    response = await self.call(request)
+                    state.update_time_from_server(response.current_time)
+                    logger.debug("Heartbeat enviado", extra={"station_id": self.station_id})
+                except Exception as e:
+                    logger.warning(f"Falha no heartbeat: {e}", extra={"station_id": self.station_id})
+                    break   # Sai do loop se houver erro (a tarefa será cancelada externamente)
+        except asyncio.CancelledError:
+            logger.info("Tarefa de heartbeat cancelada")
+            self._stop_requested = True
+            raise   # Re-lança para que a tarefa seja marcada como cancelada
 
 
 async def run_charge_point_with_reconnect(
@@ -235,6 +241,7 @@ async def run_charge_point_with_reconnect(
 
                 # Inicia o loop de recebimento de mensagens em background
                 start_task = asyncio.create_task(cp.start())
+                heartbeat_task = None
 
                 try:
                     # Envia BootNotification e aguarda aceitação
@@ -245,7 +252,6 @@ async def run_charge_point_with_reconnect(
                             await start_task
                         except asyncio.CancelledError:
                             pass
-                        await ws.close()
                         continue  # Tenta reconectar
                         
                         
@@ -271,21 +277,59 @@ async def run_charge_point_with_reconnect(
                     # Notifica conexão estabelecida
                     if on_connect:
                         await on_connect(cp)
+                    
+                    # --- Tarefa 2: heartbeat periódico (iniciado APÓS BootNotification) ---
+                    heartbeat_task = asyncio.create_task(cp.send_heartbeat())
 
-                    # Aguarda até que a tarefa start termine (conexão caiu)
-                    await start_task
+                    # Aguarda a primeira tarefa finalizar (conexão perdida ou heartbeat falhou)
+                    done, pending = await asyncio.wait(
+                        [start_task, heartbeat_task],
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
+                    
+                    # Cancela a tarefa que ainda está pendente
+                    for task in pending:
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+
+                    # Verifica se alguma das tarefas concluídas lançou exceção
+                    for task in done:
+                        exc = task.exception()
+                        if exc and not isinstance(exc, asyncio.CancelledError):
+                            logger.error(f"Tarefa finalizou com exceção: {exc}")
+                            # Relança a exceção para que o loop externo trate como falha
+                            raise exc
+                            
+                except asyncio.CancelledError:
+                    # Cancelamento externo (ex: Ctrl+C) - cancela as tarefas e propaga
+                    logger.info("Cancelamento detectado, encerrando tarefas internas...")
+                    start_task.cancel()
+                    if heartbeat_task:
+                        heartbeat_task.cancel()
+                    # Aguarda o cancelamento de ambas
+                    await asyncio.gather(
+                        start_task,
+                        heartbeat_task if heartbeat_task else asyncio.sleep(0),
+                        return_exceptions=True
+                    )
 
                 except Exception as e:
-                    logger.error(f"Erro durante a operacao: {e}")
-                    start_task.cancel()
-                    try:
-                        await start_task
-                    except asyncio.CancelledError:
-                        pass
-                    raise  # Propaga para o bloco de exceções externo
+                    # Garante que ambas as tarefas sejam canceladas em caso de erro
+                    for task in (start_task, heartbeat_task) if 'heartbeat_task' in locals() else (start_task,):
+                        if not task.done():
+                            task.cancel()
+                            try:
+                                await task
+                            except asyncio.CancelledError:
+                                pass
+                    logger.error(f"Erro durante a operação: {e}")
+                    raise  # Propaga para que o loop de reconexão atue
 
-                # Se saiu do start, a conexão foi encerrada normalmente
-                logger.info("Conexao encerrada normalmente.")
+                # Se chegou aqui, a conexão foi encerrada voluntariamente (raro)
+                logger.info("Conexão encerrada normalmente.")
                 break
 
         except (websockets.ConnectionClosed, ConnectionRefusedError, OSError, asyncio.TimeoutError) as e:
