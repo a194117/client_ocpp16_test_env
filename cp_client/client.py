@@ -121,15 +121,21 @@ class ChargePoint(BaseChargePoint):
             logger.warning(f"O Registro do CP não foi aceito, Authorize não pode ser enviado:", extra={"station_id": self.station_id})
             return False
 
-    async def start_transaction(self, id_tag: str, meter_start: int) -> Optional[int]:
+    async def start_transaction(self, id_tag: str, meter_start: int, reservation_id: int = 0) -> Optional[int]:
         if state.registration == RegistrationStatus.accepted:
             timestamp = state.get_current_time()
-            request = call.StartTransaction(
-                connector_id=self.connector_id,
-                id_tag=id_tag,
-                meter_start=meter_start,
-                timestamp=timestamp
-            )
+            
+            start_kwargs = {
+                "connector_id":self.connector_id,
+                "id_tag":id_tag,
+                "meter_start":meter_start,
+                "timestamp":timestamp,
+            }
+            if reservation_id:
+                start_kwargs["reservation_id"]=reservation_id,
+            
+            request = call.StartTransaction(**start_kwargs)
+            
             try:
                 response = await self.call(request)
                 if response.id_tag_info.get("status") == AuthorizationStatus.accepted:
