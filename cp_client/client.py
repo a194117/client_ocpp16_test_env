@@ -100,6 +100,7 @@ class ChargePoint(BaseChargePoint):
             logger.info(f"StatusNotification enviado para conector {connector_id}: {status.value}", extra={"station_id": self.station_id})
         except Exception as e: 
             logger.error(f"Falha ao enviar StatusNotification para conector {connector_id}: {e}",extra={"station_id": self.station_id})
+            raise 
 
 
     async def authorize(self, id_tag: str) -> bool:

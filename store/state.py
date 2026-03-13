@@ -167,6 +167,22 @@ class ChargePointState:
                 return
         raise ValueError(f"Connector {connector_id} não encontrado")
         
+        
+    def get_connector_state(self, connector_id: int) -> dict | None:
+        """
+        Retorna um dicionario contendo as propriedades do ConnectorState com o ID fornecido, ou None se não existir.
+        """
+        for connector in self.connectors:
+            if connector.connector_id == connector_id:
+                return {
+                    'connector_id': connector.connector_id,
+                    'status': connector.status,
+                    'error_code': connector.error_code,
+                    'info': connector.info,
+                    'timestamp': connector.timestamp,
+                }
+        raise ValueError(f"Connector {connector_id} não encontrado")
+        
             
     @locked
     def update_time_from_server(self, server_time_iso: str):
