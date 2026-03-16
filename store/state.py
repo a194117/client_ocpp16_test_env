@@ -1,29 +1,12 @@
 # store/state.py
 from dataclasses import dataclass, field, fields
 from datetime import datetime, timezone, timedelta
-
-import threading
-from functools import wraps
-from typing import List
+from typing import List, Optional, Dict
 
 from ocpp.v16 import enums
-from ocpp.v16 import datatypes  # importa as dataclasses fornecidas
+from ocpp.v16 import datatypes 
 
-def locked(func):
-    """
-    decorador personalizado que envolve uma função para adquirir o lock antes de executá-la.
-    """
-    @wraps(func)
-    def wrapper(self, *args, **kwargs):
-        with self._lock:
-            # Ativamos uma "bandeira" interna para permitir a escrita temporariamente
-            self._allow_write = True
-            try:
-                return func(self, *args, **kwargs)
-            finally:
-                self._allow_write = False
-    return wrapper
-    
+from .base import BaseLockedState, locked
     
 @dataclass
 class ConnectorState:
@@ -32,106 +15,63 @@ class ConnectorState:
     status: enums.ChargePointStatus = enums.ChargePointStatus.available
     error_code: enums.ChargePointErrorCode = enums.ChargePointErrorCode.no_error
     info: str | None = None
-    timestamp: datetime | None = None,
+    timestamp: datetime | None = None
 
 
 @dataclass
-class ChargePointState:
+class ChargePointState(BaseLockedState):
     """
-    Estado global do Charge Point.
+    Estado global do Charge Point, incluindo status, configurações, transações.
     """
+    def __init__(self):
+        super().__init__()
+        # Status básico do CP
+        self.registration: enums.ChargePointStatus | None = None
+        self.status: enums.ChargePointStatus = enums.ChargePointStatus.available
+        self.error_code: enums.ChargePointErrorCode = enums.ChargePointErrorCode.no_error
+        self.info: str | None = None
     
-    # Status básico do CP
-    registration: enums.ChargePointStatus | None = None
-    status: enums.ChargePointStatus = enums.ChargePointStatus.available
-    error_code: enums.ChargePointErrorCode = enums.ChargePointErrorCode.no_error
-    info: str | None = None
+        # Conectores
+        self.connectors_qty: int = 0
+        self.connectors: List[ConnectorState] = []  
     
-    # Conectores
-    connectors_qty: int = 0
-    connectors: List[ConnectorState] = field(default_factory=list)  
+        # Relógio Interno para sincronização com o servidor
+        self.heartbeat_interval: int | None = None
+        self.server_current_time: str | None = None
+        self.time_offset: float = 0.0
     
-    # Relógio Interno para sincronização com o servidor
-    heartbeat_interval: int | None = None
-    server_current_time: str | None = None
-    time_offset: float = 0.0
-    
-    # Lista de autorizações locais (local auth list)
-    local_auth_list: List[datatypes.AuthorizationData] = field(default_factory=list)
-    local_auth_list_version: int = 0
-
-    # Perfis de carregamento ativos (TxProfile, ChargePointMaxProfile, etc.)
-    charging_profiles: List[datatypes.ChargingProfile] = field(default_factory=list)
-
-    # Transação atual (se houver)
-    current_transaction_id: int | None = None
-    current_connector_id: int | None = None
-    id_tag_in_transaction: str | None = None
-
-    # Reservas ativas
-    reservations: List[dict] = field(default_factory=list)  # Você pode criar uma dataclass Reservation se desejar
-
-    # Configurações do CP (key-value)
-    configuration: dict = field(default_factory=dict)
-
-    # ... adicione outros atributos conforme necessário
-
-    # Objeto de sincronização para controle de concorrência em programas com múltiplas threads
-    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
-    # Controla se a escrita está autorizada no momento
-    _allow_write: bool = field(default=False, init=False, repr=False)
-
-    def __setattr__(self, name, value):
-        # 1. Permitir a criação inicial dos atributos e do próprio lock/bandeira
-        if name in ("_lock", "_allow_write") or not hasattr(self, "_lock"):
-            super().__setattr__(name, value)
-            return
-
-        # 2. Bloquear se tentar mudar diretamente sem passar pelo 'update'
-        if not getattr(self, "_allow_write", False):
-            raise AttributeError(
-                f"Não é permitido modificar '{name}' diretamente. Use o método update()."
-            )
+        # Lista de autorizações locais (local auth list)
+        """       
+        !!!! A IMPLEMENTAR !!!!
         
-        super().__setattr__(name, value)
-
-
-    """       !!!! A IMPLEMENTAR !!!!
-    
-    def __post_init__(self):
-        #Inicializa valores padrão complexos se necessário.
-        with self._lock:
-            if not self.configuration:
-                # Carregar configurações iniciais (ex: de um arquivo)
-                self.configuration = {
-                    enums.ConfigurationKey.heartbeat_interval: 60,
-                    enums.ConfigurationKey.authorization_cache_enabled: True,
-                    # ...
-                }
-    """
-    
-    @locked
-    def update(self, **kwargs):
-        """Única porta de entrada para modificações externas."""
-        for key, value in kwargs.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
-    
-    @locked
-    def reset(self):
-        """
-        Reset Dinâmico da Classe. Percorre todos os campos da classe e atribui a eles o valor de uma nova instância "limpa". Usa o decorator @locked para garantir que ninguém lê/escreve enquanto as propriedades voltam ao padrão.
-
+        self.local_auth_list: List[datatypes.AuthorizationData] = = []
+        self.local_auth_list_version: int = 0
         """
 
-        default_instance = self.__class__()
+        # Perfis de carregamento ativos (TxProfile, ChargePointMaxProfile, etc.)
+        """       
+        !!!! A IMPLEMENTAR !!!!
+        self.charging_profiles: List[datatypes.ChargingProfile] = = []
+        """
+
+        # Transação atual (se houver)
+        self.current_transaction_id: int | None = None
+        self.current_connector_id: int | None = None
+        self.id_tag_in_transaction: str | None = None
+        self.current_transaction_power: float | None = None
+
         
-        for f in fields(self):
-            if f.name in ("_lock", "_allow_write"):
-                continue
-                
-            val = getattr(default_instance, f.name)
-            setattr(self, f.name, val)
+        # Reservas ativas
+        """
+        !!!! A IMPLEMENTAR !!!!
+        self.reservations: List[dict] = = []  # Você pode criar uma dataclass 
+        """
+
+        # Configurações do CP (key-value)
+        """
+        !!!! A IMPLEMENTAR !!!!
+        self.configuration: dict = {}
+        """
             
     
     @locked
@@ -143,6 +83,7 @@ class ChargePointState:
         """
         self.connectors.clear()
         self.connectors_qty = qty
+           
         for i in range(1, qty + 1):
             self.connectors.append(ConnectorState(connector_id=i))
 
@@ -166,8 +107,8 @@ class ChargePointState:
                 conn.timestamp = self.get_current_time()
                 return
         raise ValueError(f"Connector {connector_id} não encontrado")
-        
-        
+    
+    
     def get_connector_state(self, connector_id: int) -> dict | None:
         """
         Retorna um dicionario contendo as propriedades do ConnectorState com o ID fornecido, ou None se não existir.
@@ -182,8 +123,8 @@ class ChargePointState:
                     'timestamp': connector.timestamp,
                 }
         raise ValueError(f"Connector {connector_id} não encontrado")
+    
         
-            
     @locked
     def update_time_from_server(self, server_time_iso: str):
         """
