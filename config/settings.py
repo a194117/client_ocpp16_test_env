@@ -3,8 +3,9 @@ from pydantic_settings import BaseSettings
 from pydantic import Field
 
 class Settings(BaseSettings):
-    # Websocket
+    # General
     ws_url: str = Field("ws://localhost:8080/steve/websocket/CentralSystemService/", env="WS_URL")
+    time_scale: int = Field(10, env="TIME_SCALE")
     
     # Charge Point 
     station_id: str = Field("CP_1", env="STATION_ID")
@@ -19,18 +20,20 @@ class Settings(BaseSettings):
     meter_type: str | None = Field(None, env="METER_TYPE")
     
     # Connectors
-    connectors_qty: int = Field(1, env="CONNECTORS_QTY")
+    connectors_qty: int = Field(2, env="CONNECTORS_QTY")
     
     # Vehicle
     id_tag: str = Field("CARD123", env="ID_TAG")
 
-    # Heartbeat e timeouts
+    # Configuration Keys
     heartbeat_interval: int = Field(60, env="HEARTBEAT_INTERVAL")   # segundos
     connection_timeout: int = Field(30, env="CONNECTION_TIMEOUT")   # segundos
+    reset_retries: int = Field(50, env="RESET_RETRIES")
+    
+    # timeouts
     response_timeout: int = Field(30, env="RESPONSE_TIMEOUT")       # segundos
 
     # Retry / Backoff
-    max_retries: int = Field(50, env="MAX_RETRIES")
     base_delay: float = Field(5.0, env="BASE_DELAY")                
 
     class Config:

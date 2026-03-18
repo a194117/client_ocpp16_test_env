@@ -36,7 +36,6 @@ class ChargePointState(BaseLockedState):
         self.connectors: List[ConnectorState] = []  
     
         # Relógio Interno para sincronização com o servidor
-        self.heartbeat_interval: int | None = None
         self.server_current_time: str | None = None
         self.time_offset: float = 0.0
     
@@ -67,13 +66,6 @@ class ChargePointState(BaseLockedState):
         self.reservations: List[dict] = = []  # Você pode criar uma dataclass 
         """
 
-        # Configurações do CP (key-value)
-        """
-        !!!! A IMPLEMENTAR !!!!
-        self.configuration: dict = {}
-        """
-            
-    
     @locked
     def initialize_connectors(self, qty: int):
         """

@@ -10,6 +10,7 @@ from ocpp.v16 import call
 from ocpp.v16.enums import RegistrationStatus, AuthorizationStatus, ChargePointStatus, ChargePointErrorCode
 
 from store.state import state
+from store.conf_keys import configuration_keys
 from config.settings import settings
 from .base import setup_logger
 
@@ -59,7 +60,8 @@ class ChargePoint(BaseChargePoint):
 
             try:
                 state.update(registration=response.status)
-                state.update(heartbeat_interval = response.interval if response.interval else settings.heartbeat_interval)
+                if response.interval:
+                    configuration_keys.set("HeartbeatInterval", response.interval)
                 
                 if state.registration == RegistrationStatus.rejected:
                     return False
@@ -204,7 +206,7 @@ class ChargePoint(BaseChargePoint):
         """Envia Heartbeat periodicamente, usando o intervalo definido pelo servidor."""
         try:
             while not self._stop_requested:
-                await asyncio.sleep(state.heartbeat_interval)
+                await asyncio.sleep(configuration_keys.get("HeartbeatInterval"))
                 try:
                     request = call.Heartbeat()
                     response = await self.call(request)
@@ -228,7 +230,7 @@ async def run_charge_point_with_reconnect(
     Notifica via callbacks quando um novo ChargePoint é conectado ou quando a conexão é perdida.
     """
     retries = 0
-    while retries < settings.max_retries:
+    while retries < configuration_keys.get("ResetRetries"):
         try:
             ws_url = f"{settings.ws_url}{settings.station_id}"
             logger.info(f"Tentando conectar a {ws_url}")
@@ -240,7 +242,7 @@ async def run_charge_point_with_reconnect(
                     ping_interval=20,
                     ping_timeout=10
                 ),
-                timeout=settings.connection_timeout
+                timeout=configuration_keys.get("ConnectionTimeOut")
             )
 
             async with ws:
@@ -270,7 +272,7 @@ async def run_charge_point_with_reconnect(
                     )
                     
                     # Inicializa os conectores na store global
-                    state.initialize_connectors(settings.connectors_qty)
+                    state.initialize_connectors(configuration_keys.get("NumberOfConnectors")) 
 
                     # Envia StatusNotification para cada conector
                     for connector in state.connectors:
@@ -342,7 +344,7 @@ async def run_charge_point_with_reconnect(
         except (websockets.ConnectionClosed, ConnectionRefusedError, OSError, asyncio.TimeoutError) as e:
             retries += 1
             delay = settings.base_delay * 1
-            logger.warning(f"Conexão perdida ou falhou. Tentativa {retries}/{settings.max_retries}. "
+            logger.warning(f"Conexão perdida ou falhou. Tentativa {retries}/{settings.reset_retries}. "
                            f"Reconectando em {delay:.1f}s. Erro: {e}")
             if on_disconnect:
                 await on_disconnect()
