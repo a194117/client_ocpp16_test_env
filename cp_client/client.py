@@ -7,10 +7,11 @@ from typing import Optional, Callable, Awaitable
 import websockets
 from ocpp.v16 import ChargePoint as BaseChargePoint
 from ocpp.v16 import call
-from ocpp.v16.enums import RegistrationStatus, AuthorizationStatus, ChargePointStatus, ChargePointErrorCode
+from ocpp.v16.enums import RegistrationStatus, AuthorizationStatus, ChargePointStatus, ChargePointErrorCode, ReadingContext
 
 from store.state import state
 from store.conf_keys import configuration_keys
+from store.meters import meters
 from config.settings import settings
 from .base import setup_logger
 
@@ -206,7 +207,8 @@ class ChargePoint(BaseChargePoint):
         """Envia Heartbeat periodicamente, usando o intervalo definido pelo servidor."""
         try:
             while not self._stop_requested:
-                await asyncio.sleep(configuration_keys.get("HeartbeatInterval"))
+                """Utiliza Time Scale para adequar ao tempo de simulação."""
+                await asyncio.sleep(configuration_keys.get("HeartbeatInterval")/settings.time_scale)
                 try:
                     request = call.Heartbeat()
                     response = await self.call(request)
@@ -217,6 +219,54 @@ class ChargePoint(BaseChargePoint):
                     break   # Sai do loop se houver erro (a tarefa será cancelada externamente)
         except asyncio.CancelledError:
             logger.info("Tarefa de heartbeat cancelada")
+            self._stop_requested = True
+            raise   # Re-lança para que a tarefa seja marcada como cancelada
+            
+    async def send_periodic_meter_values(self):
+        """Envia MeterValue periodicamente, usando o intervalo definido pelo Usuário."""
+        try:
+            while not self._stop_requested:
+                """Utiliza Time Scale para adequar ao tempo de simulação."""
+                await asyncio.sleep(configuration_keys.get("ClockAlignedDataInterval")/settings.time_scale)
+                for connector in state.connectors:
+                    try:
+                        timestamp = state.get_current_time()
+                        
+                        sampled_values = meters.get_meter_value(
+                            connector_id=connector.connector_id,
+                            measurands=configuration_keys.get("MeterValuesAlignedData"),
+                            context=ReadingContext.sample_periodic
+                        )
+
+                        # Prepara o entry para o MeterValues
+                        meter_value_entry = {
+                            "timestamp": timestamp,
+                            "sampledValue": sampled_values
+                        }
+                        
+                        request = call.MeterValues(
+                            connector_id=connector.connector_id,
+                            transaction_id=None,
+                            meter_value=[meter_value_entry]
+                        )
+                      
+                        response = await self.call(request)
+                        logger.info(f"PeriodicMeterValues enviado para Conector {connector.connector_id}", extra={"station_id": self.station_id})
+                    except Exception as e:
+                        logger.exception(
+                            f"Falha ao enviar MeterValues periódico para conector {connector.connector_id}",
+                            extra={
+                                "station_id": self.station_id,
+                                "connector_id": connector.connector_id,
+                                "transaction_id": None,
+                                "measurands": configuration_keys.get("MeterValuesAlignedData"),
+                                "timestamp": timestamp,
+                                "error": str(e)
+                            }
+                        )
+                        continue  
+        except asyncio.CancelledError:
+            logger.info("Tarefa de PeriodicMeterValues cancelada")
             self._stop_requested = True
             raise   # Re-lança para que a tarefa seja marcada como cancelada
 
@@ -251,6 +301,7 @@ async def run_charge_point_with_reconnect(
                 # Inicia o loop de recebimento de mensagens em background
                 start_task = asyncio.create_task(cp.start())
                 heartbeat_task = None
+                periodic_meter_values_task = None
 
                 try:
                     # Envia BootNotification e aguarda aceitação
@@ -289,10 +340,13 @@ async def run_charge_point_with_reconnect(
                     
                     # --- Tarefa 2: heartbeat periódico (iniciado APÓS BootNotification) ---
                     heartbeat_task = asyncio.create_task(cp.send_heartbeat())
+                    
+                    # --- Tarefa 3: meter values periódicos ---
+                    periodic_meter_values_task = asyncio.create_task(cp.send_periodic_meter_values())
 
                     # Aguarda a primeira tarefa finalizar (conexão perdida ou heartbeat falhou)
                     done, pending = await asyncio.wait(
-                        [start_task, heartbeat_task],
+                        [start_task, heartbeat_task, periodic_meter_values_task],
                         return_when=asyncio.FIRST_COMPLETED
                     )
                     
@@ -313,29 +367,27 @@ async def run_charge_point_with_reconnect(
                             raise exc
                             
                 except asyncio.CancelledError:
-                    # Cancelamento externo (ex: Ctrl+C) - cancela as tarefas e propaga
                     logger.info("Cancelamento detectado, encerrando tarefas internas...")
-                    start_task.cancel()
-                    if heartbeat_task:
-                        heartbeat_task.cancel()
-                    # Aguarda o cancelamento de ambas
+                    for task in (start_task, heartbeat_task, periodic_meter_values_task):
+                        if task and not task.done():
+                            task.cancel()
                     await asyncio.gather(
-                        start_task,
-                        heartbeat_task if heartbeat_task else asyncio.sleep(0),
+                        *[t for t in (start_task, heartbeat_task, periodic_meter_values_task) if t],
                         return_exceptions=True
                     )
+                    raise
+
 
                 except Exception as e:
-                    # Garante que ambas as tarefas sejam canceladas em caso de erro
-                    for task in (start_task, heartbeat_task) if 'heartbeat_task' in locals() else (start_task,):
-                        if not task.done():
+                    for task in (start_task, heartbeat_task, periodic_meter_values_task):
+                        if task and not task.done():
                             task.cancel()
                             try:
                                 await task
                             except asyncio.CancelledError:
                                 pass
                     logger.error(f"Erro durante a operação: {e}")
-                    raise  # Propaga para que o loop de reconexão atue
+                    raise
 
                 # Se chegou aqui, a conexão foi encerrada voluntariamente (raro)
                 logger.info("Conexão encerrada normalmente.")

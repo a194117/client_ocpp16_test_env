@@ -30,6 +30,13 @@ class ConfigurationKeys(BaseLockedState):
         "HeartbeatInterval": "heartbeat_interval",
         "ConnectionTimeOut": "connection_timeout",
         "ResetRetries": "reset_retries",
+        "ClockAlignedDataInterval": "clock_aligned_data_interval",
+        "MeterValuesAlignedData": "meter_values_aligned_data",
+        "MeterValueSampleInterval": "meter_values_sample_interval",
+        "MeterValuesSampledData": "meter_values_sample_data",
+        "StopTxnAlignedData": "stop_txn_aligned_data",
+        "StopTxnSampledData": "stop_txn_sample_data",
+    
         # Adicione outros mapeamentos se necessário
     }
 
@@ -42,8 +49,10 @@ class ConfigurationKeys(BaseLockedState):
             settings_attr = self._SETTINGS_ATTR_MAP.get(key_name)
             if settings_attr and hasattr(settings, settings_attr):
                 value = getattr(settings, settings_attr)
+                if value is None:
+                    pass  # value continua None
                 # Garante que o valor é do tipo esperado
-                if not isinstance(value, typ):
+                elif not isinstance(value, typ):
                     try:
                         value = typ(value)
                     except (ValueError, TypeError):
