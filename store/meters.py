@@ -83,6 +83,7 @@ class Meters(BaseLockedState):
         voltage = float(settings.voltage)
         frequency = float(settings.frequency)
         temperature = float(settings.temperature)
+        current = float(settings.current)
         max_current = float(settings.max_current)
         energy1 = float(settings.connector1_init_energy_import)
         energy2 = float(settings.connector2_init_energy_import)
@@ -102,7 +103,10 @@ class Meters(BaseLockedState):
         self._global_values[enums.Measurand.voltage] = voltage
         self._data[1][enums.Measurand.voltage] = voltage
         self._data[2][enums.Measurand.voltage] = voltage
-
+        
+        # Current.Import (por conector)
+        self._data[1][enums.Measurand.current_import] = current
+        self._data[2][enums.Measurand.current_import] = current
 
         # Current.Offered (por conector)
         self._data[1][enums.Measurand.current_offered] = max_current
@@ -180,6 +184,24 @@ class Meters(BaseLockedState):
             self._data[2][measurand] = float_val
         else:
             self._data[connector_id][measurand] = float_val
+            
+    @locked
+    def update_active_import_register(
+        self,
+        connector_id: int,
+        value: Union[float, str],
+    ) -> None:
+        """
+        Atualiza o valor do medidor Energy.Active.Import.Register de um conector .
+        """
+        if connector_id == 0:
+            raise ValueError("Não é possível atualizar valores para o conector 0")
+        if connector_id not in (1, 2):
+            raise ValueError("connector_id deve ser 1 ou 2 para update_values")
+            
+        float_val = float(value)
+
+        self._data[connector_id][enums.Measurand.energy_active_import_register] += float_val
 
     @locked
     def update_values(
@@ -204,6 +226,7 @@ class Meters(BaseLockedState):
                 self._data[2][measurand] = float_val
             else:
                 self._data[connector_id][measurand] = float_val
+               
 
     def get_meter_value(
         self,

@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     # General
     ws_url: str = Field("ws://localhost:8080/steve/websocket/CentralSystemService/", env="WS_URL")
     time_scale: int = Field(1, env="TIME_SCALE")
+    recharge_value: float = Field(5.0, env="RECHARGE_VALUE")
     
     # Charge Point Attributes
     station_id: str = Field("CP_1", env="STATION_ID")
@@ -30,6 +31,7 @@ class Settings(BaseSettings):
     
     # Standard Measurements
     voltage: float = Field(370.0, env="VOLTAGE")
+    current: float = Field(15.0, env="CURRENT")
     max_current: float = Field(200.0, env="MAX_CURRENT")
     frequency: float = Field(60.0, env="FREQUENCY")
     temperature: float = Field(305.0, env="TEMPERATURE")

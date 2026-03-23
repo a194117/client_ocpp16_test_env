@@ -172,7 +172,9 @@ class InteractiveHandler:
         # Prepara kwargs baseado no cenário
         kwargs = {}
         if args and scenario_name == "min_cycle":
-            kwargs['id_tag'] = args[0]  # pode ser string
+            kwargs['recharge_value'] = args[0]  
+            kwargs['id_tag'] = args[1]
+            kwargs['connector_id'] = args[2]
 
         print(f"\n>     Executando cenário '{scenario_name}'")
         if kwargs:

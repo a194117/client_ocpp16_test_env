@@ -7,7 +7,7 @@ from typing import Optional, Callable, Awaitable
 import websockets
 from ocpp.v16 import ChargePoint as BaseChargePoint
 from ocpp.v16 import call
-from ocpp.v16.enums import RegistrationStatus, AuthorizationStatus, ChargePointStatus, ChargePointErrorCode, ReadingContext
+from ocpp.v16.enums import RegistrationStatus, AuthorizationStatus, ChargePointStatus, ChargePointErrorCode, ReadingContext, Measurand, Reason
 
 from store.state import state
 from store.conf_keys import configuration_keys
@@ -124,9 +124,17 @@ class ChargePoint(BaseChargePoint):
             logger.warning(f"O Registro do CP não foi aceito, Authorize não pode ser enviado:", extra={"station_id": self.station_id})
             return False
 
-    async def start_transaction(self, id_tag: str, meter_start: int, reservation_id: Optional[int] = 0) -> Optional[int]:
+    async def start_transaction(self, conn_id: int, id_tag: str, reservation_id: Optional[int] = 0) -> Optional[int]:
         if state.registration == RegistrationStatus.accepted:
+            
             timestamp = state.get_current_time()
+            
+            sampled_values = meters.get_meter_value(
+                connector_id=conn_id,
+                measurands=None,
+            )
+            
+            meter_start=int(float(sampled_values[0].get("value")))
             
             start_kwargs = {
                 "connector_id":self.connector_id,
@@ -135,7 +143,7 @@ class ChargePoint(BaseChargePoint):
                 "timestamp":timestamp,
             }
             if reservation_id:
-                start_kwargs["reservation_id"]=reservation_id,
+                start_kwargs["reservation_id"]=reservation_id
             
             request = call.StartTransaction(**start_kwargs)
             
@@ -161,36 +169,80 @@ class ChargePoint(BaseChargePoint):
             logger.warning(f"O Registro do CP não foi aceito, transacao nao pode ser iniciada:", extra={"station_id": self.station_id})
             return None
 
-    async def send_meter_values(self, transaction_id: int, meter_value: int):
+    async def send_transaction_meter_values(self, conn_id: int, transaction_id: int):
         timestamp = state.get_current_time()
+                        
+        sampled_values = meters.get_meter_value(
+            connector_id=conn_id,
+            measurands=configuration_keys.get("MeterValuesSampledData"),
+            context=ReadingContext.sample_periodic
+        )
+
+        # Prepara o entry para o MeterValues
         meter_value_entry = {
             "timestamp": timestamp,
-            "sampledValue": [{"value": str(meter_value), "measurand": "Energy.Active.Import.Register"}]
+            "sampledValue": sampled_values
         }
+                        
         request = call.MeterValues(
-            connector_id=self.connector_id,
+            connector_id=conn_id,
             transaction_id=transaction_id,
             meter_value=[meter_value_entry]
         )
-        try:
+        
+        try:  
             response = await self.call(request)
-            logger.info(f"MeterValues enviado: {meter_value} Wh", extra={
-                "station_id": self.station_id,
-                "transaction_id": transaction_id,
-                "meter_value": meter_value
-            })
-            return response
+            logger.info(f"TransactionMeterValues enviado para Conector {conn_id}", extra={"station_id": self.station_id, "transaction_id": transaction_id})
         except Exception as e:
-            logger.error(f"Erro no MeterValues: {e}", extra={"station_id": self.station_id, "transaction_id": transaction_id})
+            logger.error(
+                f"Falha ao enviar MeterValues durante a transacao: {e}",
+                extra={
+                    "station_id": self.station_id,
+                    "connector_id": conn_id,
+                    "transaction_id": transaction_id,
+                    "measurands": configuration_keys.get("MeterValuesSampledData"),
+                    "timestamp": timestamp,
+                    "error": str(e)
+                }
+            ) 
 
-    async def stop_transaction(self, transaction_id: int, meter_stop: int, id_tag: Optional[str] = None):
+
+    async def stop_transaction(self, conn_id: int, transaction_id: int, id_tag: Optional[str] = None, reason: Optional[str] = None, transaction_data: Optional[bool] = None):
+        
         timestamp = state.get_current_time()
-        request = call.StopTransaction(
-            transaction_id=transaction_id,
-            meter_stop=meter_stop,
-            timestamp=timestamp,
-            id_tag=id_tag
+        
+        sampled_values = meters.get_meter_value(
+            connector_id=conn_id,
+            measurands=None,
         )
+        
+        meter_stop=int(float(sampled_values[0].get("value")))
+    
+        stop_kwargs = {
+            "transaction_id":transaction_id,
+            "meter_stop":meter_stop,
+            "timestamp":timestamp,
+        }
+        if id_tag:
+            stop_kwargs["id_tag"]=id_tag
+        if reason:
+            stop_kwargs["reason"]=reason
+        else:
+            stop_kwargs["reason"]=Reason.local
+        if transaction_data:
+            sampled_values = meters.get_meter_value(
+                connector_id=conn_id,
+                measurands=configuration_keys.get("MeterValuesSampledData"),
+                context=ReadingContext.sample_periodic
+            )
+            meter_value_entry = {
+                "timestamp": timestamp,
+                "sampledValue": sampled_values
+            }
+            stop_kwargs["transaction_data"]=[meter_value_entry]
+    
+        request = call.StopTransaction(**stop_kwargs)
+
         try:
             response = await self.call(request)
             logger.info("Transacao encerrada", extra={
@@ -235,7 +287,7 @@ class ChargePoint(BaseChargePoint):
                         sampled_values = meters.get_meter_value(
                             connector_id=connector.connector_id,
                             measurands=configuration_keys.get("MeterValuesAlignedData"),
-                            context=ReadingContext.sample_periodic
+                            context=ReadingContext.sample_clock 
                         )
 
                         # Prepara o entry para o MeterValues
@@ -254,7 +306,7 @@ class ChargePoint(BaseChargePoint):
                         logger.info(f"PeriodicMeterValues enviado para Conector {connector.connector_id}", extra={"station_id": self.station_id})
                     except Exception as e:
                         logger.exception(
-                            f"Falha ao enviar MeterValues periódico para conector {connector.connector_id}",
+                            f"Falha ao enviar MeterValues periodico para conector {connector.connector_id}",
                             extra={
                                 "station_id": self.station_id,
                                 "connector_id": connector.connector_id,
@@ -265,6 +317,7 @@ class ChargePoint(BaseChargePoint):
                             }
                         )
                         continue  
+                        
         except asyncio.CancelledError:
             logger.info("Tarefa de PeriodicMeterValues cancelada")
             self._stop_requested = True

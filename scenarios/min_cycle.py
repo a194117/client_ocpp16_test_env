@@ -1,6 +1,5 @@
 # scenarios/min_cycle.py
 import asyncio
-from datetime import datetime, timezone
 
 from engine.connector_fsm import ConnectorStateMachine as fsm
 from cp_client.client import ChargePoint
@@ -21,6 +20,7 @@ class MinCycleScenario(Scenario):
 
     async def execute(self, cp: ChargePoint, **kwargs) -> bool:
         # Obtém os argumentos id_tag & connector_id  (com fallback)
+        recharge_value = kwargs.get('recharge_value', settings.recharge_value)
         id_tag = kwargs.get('id_tag', settings.id_tag)
         connector_id = kwargs.get('connector_id', 1)
         
@@ -43,24 +43,16 @@ class MinCycleScenario(Scenario):
             return False
 
         # 2. StartTransaction
-        now = datetime.now(timezone.utc)
-        transaction_id = await cp.start_transaction(id_tag, meter_start=1000)
+        transaction_id = await cp.start_transaction(connector_id, id_tag)
         if not transaction_id:
             await fsm.validate_transition(cp, connector_id, ChargePointStatus.available)
             return False
             
         # 3. MeterValues durante a transação
-        await asyncio.sleep(2)
-        now2 = datetime.now(timezone.utc)
-        await cp.send_meter_values(transaction_id, meter_value=1010)
-
-        await asyncio.sleep(2)
-        now3 = datetime.now(timezone.utc)
-        await cp.send_meter_values(transaction_id, meter_value=1020)
+        await self.perform_recharge(cp.send_transaction_meter_values, recharge_value, connector_id, transaction_id)
 
         # 4. StopTransaction
-        now4 = datetime.now(timezone.utc)
-        await cp.stop_transaction(transaction_id, meter_stop=1030, id_tag=id_tag)
+        await cp.stop_transaction(connector_id, transaction_id, id_tag=id_tag)
         
         
         validated = await fsm.validate_transition(cp, connector_id, ChargePointStatus.finishing)
