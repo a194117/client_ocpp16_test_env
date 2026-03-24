@@ -4,6 +4,7 @@ import logging
 
 from engine.connector_fsm import ConnectorStateMachine as fsm
 from cp_client.client import ChargePoint
+from cp_client.context import set_connector_id, set_transaction_id
 from config.settings import settings
 from store.state import state
 from .base import Scenario, Parameter
@@ -33,11 +34,15 @@ class MinCycleScenario(Scenario):
         id_tag = kwargs.get('id_tag', settings.id_tag)
         connector_id = kwargs.get('connector_id', 1)
         
+        set_connector_id(connector_id)
+        
         validated = await fsm.validate_transition(cp, connector_id, ChargePointStatus.preparing)
         if not validated:
+            set_connector_id(None)
             return False
 
         if not state.registration:
+            set_connector_id(None)
             return False
 
         # 1. Authorize
@@ -45,12 +50,14 @@ class MinCycleScenario(Scenario):
         if not auth_ok:
             logger.error(f"Authorization failed for tag {id_tag}")
             await fsm.validate_transition(cp, connector_id, ChargePointStatus.available)
+            set_connector_id(None)
             return False
             
         validated = await fsm.validate_transition(cp, connector_id, ChargePointStatus.charging)
         if not validated:
             logger.error(f"It is not possible to access the state {ChargePointStatus.charging}")
             await fsm.validate_transition(cp, connector_id, ChargePointStatus.available)
+            set_connector_id(None)
             return False
 
         # 2. StartTransaction
@@ -58,15 +65,19 @@ class MinCycleScenario(Scenario):
         if not transaction_id:
             logger.error(f"It is not possible to start the transaction for tag {id_tag}")
             await fsm.validate_transition(cp, connector_id, ChargePointStatus.available)
+            set_connector_id(None)
             return False
             
         # 3. MeterValues durante a transação
+        set_transaction_id(transaction_id)
         stop_reason = await self.perform_recharge(cp.send_transaction_meter_values, recharge_value, connector_id, transaction_id)
 
         validated = await fsm.validate_transition(cp, connector_id, ChargePointStatus.finishing)
         if not validated:
             logger.error(f"It is not possible to access the state {ChargePointStatus.charging}")
             await fsm.validate_transition(cp, connector_id, ChargePointStatus.available)
+            set_connector_id(None)
+            set_transaction_id(None)
             return False
 
         # 4. StopTransaction
@@ -76,6 +87,10 @@ class MinCycleScenario(Scenario):
         if not validated:
             logger.error(f"It is not possible to access the state {ChargePointStatus.charging}")
             await fsm.validate_transition(cp, connector_id, ChargePointStatus.available)
+            set_connector_id(None)
+            set_transaction_id(None)
             return False
 
+        set_connector_id(None)
+        set_transaction_id(None)
         return True

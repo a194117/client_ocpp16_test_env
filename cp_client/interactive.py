@@ -24,8 +24,6 @@ class InteractiveHandler:
         self.running = True
         self.cp: Optional['ChargePoint'] = None   # Será atualizado pela tarefa de conexão
         self.transaction_counter = 0
-        self.command_queue = None
-        self.input_task = None
 
         # Registro de cenários disponíveis
         self.scenarios: Dict[str, Scenario] = {
@@ -35,36 +33,15 @@ class InteractiveHandler:
 
     async def handle_commands(self):
         """Loop principal que recebe comandos do usuário de forma assíncrona."""
-        #  MODIFICADO! self.command_queue = asyncio.Queue()
         self._print_welcome()
 
         loop = asyncio.get_running_loop()
 
-        # Inicia a tarefa de leitura de input
-        #  MODIFICADO! self.input_task = asyncio.create_task(self._input_reader())
 
         # Loop principal: aguarda comandos da fila
         try:
             while self.running:
-                """
-                #  MODIFICADO! 
-                try:
-                    command = await asyncio.wait_for(self.command_queue.get(), timeout=0.5)
 
-                    if command is None:  # Comando de encerramento
-                        self.running = False
-                        break
-
-                    if command:
-                        await self._process_command(command)
-
-                    # Após processar o comando, imprime o prompt novamente
-                    if self.running:
-                    print("\nDigite um comando: ", end='', flush=True)
-
-                except asyncio.TimeoutError:
-                    continue
-                """
                 
                 print("\nDigite um comando: ", end='', flush=True)
                 command_line = await loop.run_in_executor(None, sys.stdin.readline)
@@ -83,39 +60,6 @@ class InteractiveHandler:
             logger.error(f"Erro no loop de comandos: {e}", exc_info=True)
         finally:
             await self._cleanup()
-
-    """
-    #  MODIFICADO!
-    async def _input_reader(self):
-        #Lê input do usuário de forma assíncrona.
-        try:
-            # Primeiro prompt
-            print("\nDigite um comando: ", end='', flush=True)
-
-            while self.running:
-                try:
-                    loop = asyncio.get_running_loop()
-                    line = await loop.run_in_executor(None, sys.stdin.readline)
-
-                    if not line:  # EOF
-                        await self.command_queue.put(None)
-                        break
-
-                    line = line.strip()
-                    if line:
-                        await self.command_queue.put(line)
-                    else:
-                        print("\nDigite um comando: ", end='', flush=True)
-
-                except Exception as e:
-                    logger.error(f"Erro na leitura de input: {e}")
-                    await asyncio.sleep(0.1)
-
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.error(f"Erro no _input_reader: {e}")
-    """
 
     def _print_welcome(self):
         print("\n" + "="*70)
@@ -303,21 +247,6 @@ class InteractiveHandler:
         """Método auxiliar para desligamento limpo."""
         print("\nEncerrando programa...")
         self.running = False
-        if self.command_queue:
-            await self.command_queue.put(None)
 
     async def _cleanup(self):
         print("Handler de comandos encerrado.")
-    """
-    #  MODIFICADO!
-        #Limpeza final dos recursos.
-        print("\nEncerrando handler de comandos...")
-
-        # Cancelar tarefa de input se estiver rodando
-        if self.input_task and not self.input_task.done():
-            self.input_task.cancel()
-            try:
-                await self.input_task
-            except asyncio.CancelledError:
-                pass
-    """

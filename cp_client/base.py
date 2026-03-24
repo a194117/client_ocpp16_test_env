@@ -1,8 +1,12 @@
 # cp_client/base.py
 import logging
 import os
+
 from logging.handlers import RotatingFileHandler
 from pythonjsonlogger import jsonlogger
+
+from .context import connector_id, transaction_id
+
 
 class ContextFilter(logging.Filter):
     """Adiciona campos fixos (station_id, connector_id) a todos os logs."""
@@ -12,6 +16,8 @@ class ContextFilter(logging.Filter):
 
     def filter(self, record):
         record.station_id = self.station_id
+        record.connector_id = connector_id.get()
+        record.transaction_id = transaction_id.get()
         return True
 
 def setup_logger(name, log_to_console=False):
@@ -41,7 +47,7 @@ def setup_logger(name, log_to_console=False):
     file_handler.setLevel(logging.INFO)
     
     formatter = jsonlogger.JsonFormatter(
-        '%(asctime)s %(name)s %(levelname)s %(message)s %(station_id)s %(transaction_id)s'
+        '%(asctime)s %(name)s %(levelname)s %(message)s %(station_id)s %(connector_id)s %(transaction_id)s'
     )
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)

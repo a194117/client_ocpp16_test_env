@@ -14,6 +14,7 @@ from store.conf_keys import configuration_keys
 from store.meters import meters
 from config.settings import settings
 from .base import setup_logger
+from .context import set_transaction_id
 
 logger = setup_logger("cp_client")
 
@@ -21,8 +22,8 @@ class ChargePoint(BaseChargePoint):
     def __init__(self, station_id: str, connection, response_timeout=30):
         super().__init__(station_id, connection, response_timeout)
         self.station_id = station_id
-        self._transaction_id: Optional[int] = None
         self._stop_requested = False
+        self.connector_id = 1
 
     async def start(self):
         """Sobrescreve start para iniciar o loop de mensagens."""
@@ -57,6 +58,7 @@ class ChargePoint(BaseChargePoint):
         
         try:
             response = await self.call(request)
+            logger.info(f"SendBootNotification.conf recebido com 'status': '{response.status}'")
 
             try:
                 state.update(registration=response.status)
@@ -73,7 +75,7 @@ class ChargePoint(BaseChargePoint):
                 raise Exception(f"'{response.status}' não é um estado de registro válido.")
                                
         except Exception as e:
-            logger.error(f"Erro no BootNotification: {e}", extra={"station_id": self.station_id})
+            logger.error(f"Erro no BootNotification.req: {e}")
             return False
             
     async def send_status_notification(self, connector_id: int, status: ChargePointStatus, error_code: ChargePointErrorCode, timestamp:  str | None = None, info:  str | None = None, vendor_id:  str | None = None, vendor_error_code:  str | None = None ):
@@ -99,9 +101,9 @@ class ChargePoint(BaseChargePoint):
 
         try:
             response = await self.call(request)
-            logger.info(f"StatusNotification enviado para conector {connector_id}: {status.value}", extra={"station_id": self.station_id})
+            logger.info(f"StatusNotification.req enviado com 'status': '{status.value}'")
         except Exception as e: 
-            logger.error(f"Falha ao enviar StatusNotification para conector {connector_id}: {e}",extra={"station_id": self.station_id})
+            logger.error(f"Falha ao enviar StatusNotification.req: {e}")
             raise 
 
 
@@ -111,25 +113,25 @@ class ChargePoint(BaseChargePoint):
             try:
                 response = await self.call(request)
                 if response.id_tag_info.get("status") == AuthorizationStatus.accepted:
-                    logger.info(f"Authorize aceito para idTag {id_tag}", extra={"station_id": self.station_id})
+                    logger.info(f"Authorize.conf 'status': {response.id_tag_info.get('status')}, 'idTag': '{id_tag}'")
                     return True
                 else:
-                    logger.warning(f"Authorize para idTag {id_tag} rejeitado: {response.id_tag_info}", extra={"station_id": self.station_id})
+                    logger.warning(f"Authorize.conf 'status': {response.id_tag_info.get('status')}, 'idTag': '{id_tag}'")
                     return False
             except Exception as e:
-                logger.error(f"Erro durante Authorize para idTag {id_tag}: {e}", extra={"station_id": self.station_id})
+                logger.error(f"Erro durante Authorize.req 'idTag': '{id_tag}'. Erro: {e}")
                 return False
         else : 
-            logger.warning(f"O Registro do CP não foi aceito, Authorize não pode ser enviado:", extra={"station_id": self.station_id})
+            logger.warning(f"O Registro do CP não foi aceito, Authorize.req não pode ser enviado")
             return False
 
-    async def start_transaction(self, conn_id: int, id_tag: str, reservation_id: Optional[int] = 0) -> Optional[int]:
+    async def start_transaction(self, connector_id: int, id_tag: str, reservation_id: Optional[int] = 0) -> Optional[int]:
         if state.registration == RegistrationStatus.accepted:
             
             timestamp = state.get_current_time()
             
             sampled_values = meters.get_meter_value(
-                connector_id=conn_id,
+                connector_id=connector_id,
                 measurands=None,
             )
             
@@ -148,31 +150,29 @@ class ChargePoint(BaseChargePoint):
             
             try:
                 response = await self.call(request)
+                set_transaction_id(response.transaction_id)
                 if response.id_tag_info.get("status") == AuthorizationStatus.accepted:
                     transaction_id = response.transaction_id
                     self._transaction_id = transaction_id
-                    logger.info(f"Transacao iniciada", extra={
-                        "station_id": self.station_id,
-                        "connector_id": self.connector_id,
-                        "transaction_id": transaction_id,
-                        "id_tag": id_tag
-                    })
+                    logger.info(f"StartTransaction.conf 'status': {response.id_tag_info.get('status')}, 'meter_start' : {meter_start}")
                     return transaction_id
                 else:
-                    logger.warning(f"Falha ao iniciar transacao: {response.id_tag_info}", extra={"station_id": self.station_id})
+                    logger.warning(f"StartTransaction.conf 'status': {response.id_tag_info.get('status')}, 'meter_start' : {meter_start}")
+                    set_transaction_id(None)
                     return None
             except Exception as e:
-                logger.error(f"Erro no StartTransaction: {e}", extra={"station_id": self.station_id})
+                logger.error(f"Erro no StartTransaction.req: {e}")
+                set_transaction_id(None)
                 return None
         else : 
-            logger.warning(f"O Registro do CP não foi aceito, transacao nao pode ser iniciada:", extra={"station_id": self.station_id})
+            logger.warning(f"O Registro do CP não foi aceito, transacao nao pode ser iniciada:")
             return None
 
-    async def send_transaction_meter_values(self, conn_id: int, transaction_id: int):
+    async def send_transaction_meter_values(self, connector_id: int, transaction_id: int):
         timestamp = state.get_current_time()
                         
         sampled_values = meters.get_meter_value(
-            connector_id=conn_id,
+            connector_id=connector_id,
             measurands=configuration_keys.get("MeterValuesSampledData"),
             context=ReadingContext.sample_periodic
         )
@@ -184,34 +184,24 @@ class ChargePoint(BaseChargePoint):
         }
                         
         request = call.MeterValues(
-            connector_id=conn_id,
+            connector_id=connector_id,
             transaction_id=transaction_id,
             meter_value=[meter_value_entry]
         )
         
         try:  
             response = await self.call(request)
-            logger.info(f"TransactionMeterValues enviado para Conector {conn_id}", extra={"station_id": self.station_id, "transaction_id": transaction_id})
+            logger.info(f"MeterValues.req enviado 'context':{ReadingContext.sample_periodic}")
         except Exception as e:
-            logger.error(
-                f"Falha ao enviar MeterValues durante a transacao: {e}",
-                extra={
-                    "station_id": self.station_id,
-                    "connector_id": conn_id,
-                    "transaction_id": transaction_id,
-                    "measurands": configuration_keys.get("MeterValuesSampledData"),
-                    "timestamp": timestamp,
-                    "error": str(e)
-                }
-            ) 
+            logger.error(f"Falha ao enviar MeterValues.req 'context':{ReadingContext.sample_periodic}: {e}") 
 
 
-    async def stop_transaction(self, conn_id: int, transaction_id: int, id_tag: Optional[str] = None, reason: Optional[str] = None, transaction_data: Optional[bool] = None):
+    async def stop_transaction(self, connector_id: int, transaction_id: int, id_tag: Optional[str] = None, reason: Optional[str] = None, transaction_data: Optional[bool] = None):
         
         timestamp = state.get_current_time()
         
         sampled_values = meters.get_meter_value(
-            connector_id=conn_id,
+            connector_id=connector_id,
             measurands=None,
         )
         
@@ -230,7 +220,7 @@ class ChargePoint(BaseChargePoint):
             stop_kwargs["reason"]=Reason.local
         if transaction_data:
             sampled_values = meters.get_meter_value(
-                connector_id=conn_id,
+                connector_id=connector_id,
                 measurands=configuration_keys.get("MeterValuesSampledData"),
                 context=ReadingContext.sample_periodic
             )
@@ -244,15 +234,11 @@ class ChargePoint(BaseChargePoint):
 
         try:
             response = await self.call(request)
-            logger.info("Transacao encerrada", extra={
-                "station_id": self.station_id,
-                "transaction_id": transaction_id,
-                "meter_stop": meter_stop
-            })
+            logger.info(f"StopTransaction.req enviado 'meter_stop': {meter_stop}, 'id_tad': {id_tag}, 'reason': {reason}")
             self._transaction_id = None
             return response
         except Exception as e:
-            logger.error(f"Erro no StopTransaction: {e}", extra={"station_id": self.station_id, "transaction_id": transaction_id})
+            logger.error(f"Erro no StopTransaction.req: {e}")
 
     async def send_heartbeat(self):
         """Envia Heartbeat periodicamente, usando o intervalo definido pelo servidor."""
@@ -264,9 +250,9 @@ class ChargePoint(BaseChargePoint):
                     request = call.Heartbeat()
                     response = await self.call(request)
                     state.update_time_from_server(response.current_time)
-                    logger.debug("Heartbeat enviado", extra={"station_id": self.station_id})
+                    logger.debug("Heartbeat.req enviado")
                 except Exception as e:
-                    logger.warning(f"Falha no heartbeat: {e}", extra={"station_id": self.station_id})
+                    logger.warning(f"Falha no Heartbeat.req: {e}")
                     break   # Sai do loop se houver erro (a tarefa será cancelada externamente)
         except asyncio.CancelledError:
             logger.info("Tarefa de heartbeat cancelada")
@@ -302,19 +288,9 @@ class ChargePoint(BaseChargePoint):
                         )
                       
                         response = await self.call(request)
-                        logger.info(f"PeriodicMeterValues enviado para Conector {connector.connector_id}", extra={"station_id": self.station_id})
+                        logger.info(f"MeterValues.req enviado 'context':{ReadingContext.sample_clock}")
                     except Exception as e:
-                        logger.exception(
-                            f"Falha ao enviar MeterValues periodico para conector {connector.connector_id}",
-                            extra={
-                                "station_id": self.station_id,
-                                "connector_id": connector.connector_id,
-                                "transaction_id": None,
-                                "measurands": configuration_keys.get("MeterValuesAlignedData"),
-                                "timestamp": timestamp,
-                                "error": str(e)
-                            }
-                        )
+                        logger.error(f"Falha ao enviar MeterValues.req 'context':{ReadingContext.sample_periodic}: {e}")
                         continue  
                         
         except asyncio.CancelledError:
