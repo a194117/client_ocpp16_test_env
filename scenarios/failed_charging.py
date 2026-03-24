@@ -1,4 +1,4 @@
-# scenarios/min_cycle.py
+# scenarios/failed_charging.py
 import asyncio
 import logging
 
@@ -12,20 +12,19 @@ from ocpp.v16.enums import ChargePointStatus, ChargePointErrorCode
 
 logger = logging.getLogger("scenarios")
 
-class MinCycleScenario(Scenario):
+class FailedChargingScenario(Scenario):
     """
     Cenário de ciclo mínimo:
     Authorize -> StartTransaction -> (2x MeterValues) -> StopTransaction
     """
     
-    _min_cycle_parameters = [
-        Parameter("recharge_value", default="5.0", p_type="float", description="Valor da recarga (kWh)"),
+    _failed_charging_parameters = [
         Parameter("id_tag", default="CARD123", p_type="str", description="Tag do usuário"),
         Parameter("connector_id", default="1", p_type="int", description="ID do conector"),
     ]
     
     def __init__(self):
-        super().__init__("min_cycle", self._min_cycle_parameters)
+        super().__init__("failed_charging", self._failed_charging_parameters, True)
 
     async def execute(self, cp: ChargePoint, **kwargs) -> bool:
         # Obtém os argumentos id_tag & connector_id  (com fallback)
@@ -62,8 +61,8 @@ class MinCycleScenario(Scenario):
             
         # 3. MeterValues durante a transação
         stop_reason = await self.perform_recharge(cp.send_transaction_meter_values, recharge_value, connector_id, transaction_id)
-
-        validated = await fsm.validate_transition(cp, connector_id, ChargePointStatus.finishing)
+        
+        validated = await fsm.validate_transition(cp, connector_id, ChargePointStatus.faulted)
         if not validated:
             logger.error(f"It is not possible to access the state {ChargePointStatus.charging}")
             await fsm.validate_transition(cp, connector_id, ChargePointStatus.available)

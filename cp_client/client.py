@@ -21,7 +21,6 @@ class ChargePoint(BaseChargePoint):
     def __init__(self, station_id: str, connection, response_timeout=30):
         super().__init__(station_id, connection, response_timeout)
         self.station_id = station_id
-        self.connector_id = 1
         self._transaction_id: Optional[int] = None
         self._stop_requested = False
 
@@ -115,7 +114,7 @@ class ChargePoint(BaseChargePoint):
                     logger.info(f"Authorize aceito para idTag {id_tag}", extra={"station_id": self.station_id})
                     return True
                 else:
-                    logger.warning(f"Authorize rejeitado: {response.id_tag_info}", extra={"station_id": self.station_id})
+                    logger.warning(f"Authorize para idTag {id_tag} rejeitado: {response.id_tag_info}", extra={"station_id": self.station_id})
                     return False
             except Exception as e:
                 logger.error(f"Erro durante Authorize para idTag {id_tag}: {e}", extra={"station_id": self.station_id})

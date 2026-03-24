@@ -7,6 +7,7 @@ import logging
 
 from scenarios.base import Scenario
 from scenarios.min_cycle import MinCycleScenario
+from scenarios.failed_charging import FailedChargingScenario
 from .base import setup_logger
 
 from store.state import state
@@ -29,21 +30,24 @@ class InteractiveHandler:
         # Registro de cenários disponíveis
         self.scenarios: Dict[str, Scenario] = {
             "min_cycle": MinCycleScenario(),
+            "failed_charging": FailedChargingScenario(),
         }
 
     async def handle_commands(self):
         """Loop principal que recebe comandos do usuário de forma assíncrona."""
-        self.command_queue = asyncio.Queue()
+        #  MODIFICADO! self.command_queue = asyncio.Queue()
         self._print_welcome()
 
         loop = asyncio.get_running_loop()
 
         # Inicia a tarefa de leitura de input
-        self.input_task = asyncio.create_task(self._input_reader())
+        #  MODIFICADO! self.input_task = asyncio.create_task(self._input_reader())
 
         # Loop principal: aguarda comandos da fila
         try:
             while self.running:
+                """
+                #  MODIFICADO! 
                 try:
                     command = await asyncio.wait_for(self.command_queue.get(), timeout=0.5)
 
@@ -56,18 +60,34 @@ class InteractiveHandler:
 
                     # Após processar o comando, imprime o prompt novamente
                     if self.running:
-                        print("\nDigite um comando: ", end='', flush=True)
+                    print("\nDigite um comando: ", end='', flush=True)
 
                 except asyncio.TimeoutError:
                     continue
+                """
+                
+                print("\nDigite um comando: ", end='', flush=True)
+                command_line = await loop.run_in_executor(None, sys.stdin.readline)
+
+                if not command_line:  # EOF
+                    self.running = False
+                    break
+
+                command_line = command_line.strip()
+                if command_line:
+                    await self._process_command(command_line)    
 
         except asyncio.CancelledError:
             self.running = False
+        except Exception as e:
+            logger.error(f"Erro no loop de comandos: {e}", exc_info=True)
         finally:
             await self._cleanup()
 
+    """
+    #  MODIFICADO!
     async def _input_reader(self):
-        """Lê input do usuário de forma assíncrona."""
+        #Lê input do usuário de forma assíncrona.
         try:
             # Primeiro prompt
             print("\nDigite um comando: ", end='', flush=True)
@@ -95,28 +115,35 @@ class InteractiveHandler:
             pass
         except Exception as e:
             logger.error(f"Erro no _input_reader: {e}")
+    """
 
     def _print_welcome(self):
-        """Exibe mensagem de boas-vindas."""
-        print("\n" + "="*65)
+        print("\n" + "="*70)
         print("Sistema de Controle do Posto de Recarga - OCPP 1.6")
-        print("="*65)
+        print("="*70)
         print("Comandos disponíveis:")
 
         for name, scenario in self.scenarios.items():
-            print(f"  {name:<15} - {self._get_scenario_description(name)}")
+            desc = self._get_scenario_description(name)
+            # Adiciona lista de parâmetros
+            params = scenario.get_parameters()
+            if params:
+                param_desc = ", ".join(p.name for p in params)
+                desc += "\n" + " "*27 + f" (parâmetros: {param_desc})"
+            print(f"  {name:<25} - {desc}")
 
-        print("  status               - Verifica status da conexão")
-        print("  help                 - Mostra esta ajuda")
-        print("  quit                 - Encerra o programa")
-        print("="*65)
+        print("  status                    - Verifica status da conexão")
+        print("  help                      - Mostra esta ajuda")
+        print("  quit                      - Encerra o programa")
+        print("="*70)
 
     def _get_scenario_description(self, scenario_name: str) -> str:
         """Retorna descrição do cenário."""
         descriptions = {
-            "min_cycle": "Authorize → Start → 2xMeter → Stop \n                     params:  id_tag (default: 'CARD123')",
+            "min_cycle": "Authorize → Start → Meter → Stop",
+            "failed_charging": "Authorize → Start → Meter → Failure → Stop"
         }
-        return descriptions.get(scenario_name, "")
+        return descriptions.get(scenario_name, "Authorize → Start → Meter → Stop")
 
     async def _process_command(self, command_line: str):
         """Processa uma linha de comando."""
@@ -149,6 +176,53 @@ class InteractiveHandler:
         except Exception as e:
             logger.error(f"Erro ao processar comando '{command_line}': {e}")
             print(f"Erro ao processar comando: {e}")
+            
+    async def _get_parameters(self, scenario_name: str):
+        """Coleta parâmetros do cenário interativamente."""
+        scenario = self.scenarios[scenario_name]
+        kwargs = {}
+
+        params = scenario.get_parameters()
+        if not params:
+            return kwargs
+
+        loop = asyncio.get_running_loop()
+
+        for param in params:
+            prompt = f"{param.name}"
+            if param.description:
+                prompt += f" ({param.description})"
+            if param.default is not None:
+                prompt += f" [{param.default}]"
+            prompt += ": "
+
+            # Solicita entrada do usuário de forma assíncrona
+            value = await loop.run_in_executor(None, input, prompt)
+
+            if value.strip() == "":
+                value = None
+            else:
+                # Tenta converter para o tipo do valor padrão
+                if param.default is not None and param.p_type is not None:
+                    try:
+                        if param.p_type == "int":
+                            value = int(value)
+                        elif param.p_type == "float":
+                            value = float(value)
+                        # Se for bool, talvez precise de um tratamento especial
+                    except ValueError:
+                        print(f"Valor inválido, usando padrão {param.default}")
+                        value = param.default
+
+            if value is None and param.required:
+                print(f"Parâmetro {param.name} é obrigatório. Tente novamente.")
+                # Opcional: recurse para repetir a pergunta (simplificado aqui)
+                continue
+
+            if value is not None: 
+                kwargs[param.name] = value
+
+        return kwargs
 
     async def _execute_scenario(self, scenario_name: str, args: list):
         """
@@ -166,20 +240,37 @@ class InteractiveHandler:
             print("Posto não está registrado (BootNotification pendente).")
             return
 
-        self.transaction_counter += 1
         scenario = self.scenarios[scenario_name]
 
-        # Prepara kwargs baseado no cenário
-        kwargs = {}
-        if args and scenario_name == "min_cycle":
-            kwargs['recharge_value'] = args[0]  
-            kwargs['id_tag'] = args[1]
-            kwargs['connector_id'] = args[2]
+        # Determinar kwargs
+        if args:
+            # Mapeia argumentos posicionais para os parâmetros na ordem
+            parameters = getattr(scenario, "parameters", [])
+            kwargs = {}
+            for i, arg in enumerate(args):
+                if i < len(parameters):
+                    param = parameters[i]
+                    value = arg
+                    if param.default is not None:
+                        try:
+                            if isinstance(param.default, int):
+                                value = int(value)
+                            elif isinstance(param.default, float):
+                                value = float(value)
+                        except ValueError:
+                            print(f"Valor inválido para {param.name}, usando como string")
+                    kwargs[param.name] = value
+            # Preenche parâmetros não fornecidos com o valor padrão
+            for param in parameters:
+                if param.name not in kwargs:
+                    kwargs[param.name] = param.default
+        else:
+            # Modo interativo
+            kwargs = await self._get_parameters(scenario_name)
 
-        print(f"\n>     Executando cenário '{scenario_name}'")
-        if kwargs:
-            print(f"   Parâmetros: {kwargs}")
-
+        self.transaction_counter += 1
+        print("\n")
+        print(f"-   Iniciando cenario #{scenario_name}!")
         try:
             success = await scenario.execute(self.cp, **kwargs)
 
@@ -216,7 +307,10 @@ class InteractiveHandler:
             await self.command_queue.put(None)
 
     async def _cleanup(self):
-        """Limpeza final dos recursos."""
+        print("Handler de comandos encerrado.")
+    """
+    #  MODIFICADO!
+        #Limpeza final dos recursos.
         print("\nEncerrando handler de comandos...")
 
         # Cancelar tarefa de input se estiver rodando
@@ -226,5 +320,4 @@ class InteractiveHandler:
                 await self.input_task
             except asyncio.CancelledError:
                 pass
-
-        print("Handler de comandos encerrado.")
+    """

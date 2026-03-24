@@ -3,9 +3,9 @@ import asyncio
 import math
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Optional, List
 
-from ocpp.v16.enums import Measurand
+from ocpp.v16.enums import Measurand, Reason
 
 from config.settings import settings
 from store.meters import meters
@@ -15,15 +15,26 @@ import logging
 
 logger = logging.getLogger("scenarios")
 
+class Parameter:
+    def __init__(self, name, default=None, p_type=None, description="", required=False):
+        self.name = name
+        self.default = default
+        self.p_type = p_type
+        self.description = description
+        self.required = required
+
+
 class Scenario(ABC):
     """
     Classe base abstrata para todos os cenários de transação.
     Cada cenário deve implementar o método execute().
     """
     
-    def __init__(self, name: str):
+    def __init__(self, name: str, parameters: Optional[List[Parameter]] = None, failure: Optional[bool] = False):
         self.name = name
         self.transaction_id: Optional[int] = None
+        self.failure = failure
+        self.parameters = parameters
 
 
     @abstractmethod
@@ -47,7 +58,11 @@ class Scenario(ABC):
             "transaction_id": self.transaction_id,
         }
         
-    async def perform_recharge(self, send_meter_values, recharge_value, connector_id, transaction_id):
+    def get_parameters(self) -> List[Parameter] | None:
+        """Retorna o a Lista de parâmetros do cenário."""
+        return self.parameters
+        
+    async def perform_recharge(self, send_meter_values, recharge_value, connector_id, transaction_id) -> str:
         """ 
         Simula o processo de Recarga realizado pelo Eletroposto 
         
@@ -76,9 +91,14 @@ class Scenario(ABC):
             
             await asyncio.sleep(sampling_time/settings.time_scale)
             
+            if self.failure:
+                return Reason.other
+            
             if i == 0:
                 meters.update_active_import_register(connector_id, frac * input_pot)
             else: 
                 meters.update_active_import_register(connector_id, input_pot)
             
             await send_meter_values(connector_id, transaction_id)
+        
+        return Reason.local
