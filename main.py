@@ -1,14 +1,22 @@
 # main.py
 import asyncio
 import signal
-import logging
+import os
 
 from cp_client.client import run_charge_point_with_reconnect
 from cp_client.interactive import InteractiveHandler
 from cp_client.base import setup_logger
+from cp_client.log_cleaner import archive_old_logs
 
 async def main():
     """Função principal que inicia o sistema interativo."""
+
+    # Limpeza de logs antigos 
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    LOG_DIR = os.path.join(BASE_DIR, "logs")
+    archive_old_logs(LOG_DIR, archive_subdir="archived", processed_subdir=None)
+
+    # Configura o logger para a execução atual
     setup_logger("cp_client")
     setup_logger("interactive")
 

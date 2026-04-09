@@ -1,4 +1,5 @@
 # cp_client/base.py
+import datetime
 import logging
 import os
 
@@ -20,7 +21,7 @@ class ContextFilter(logging.Filter):
         record.transaction_id = transaction_id.get()
         return True
 
-def setup_logger(name, log_to_console=False):
+def setup_logger(name, log_to_console=False, unique_per_run=True):
     """
     Configura um logger com saída para arquivo (e opcionalmente console).
     
@@ -39,10 +40,17 @@ def setup_logger(name, log_to_console=False):
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     log_dir = os.path.join(base_dir, "logs")
     os.makedirs(log_dir, exist_ok=True)
+
+    if unique_per_run:
+        # Adiciona timestamp ao nome do arquivo
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_filename = f"{name}_{timestamp}.log"
+    else:
+        log_filename = f"{name}.log"
     
-    log_file = os.path.join(log_dir, f"{name}.log")
+    log_file = os.path.join(log_dir, log_filename)
     file_handler = RotatingFileHandler(
-        log_file, maxBytes=10*1024*1024, backupCount=5, encoding='utf-8'
+        log_file, maxBytes=25*1024*1024, backupCount=3, encoding='utf-8'
     )
     file_handler.setLevel(logging.INFO)
     
