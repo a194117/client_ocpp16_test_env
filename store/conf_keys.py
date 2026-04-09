@@ -27,6 +27,7 @@ class ConfigurationKeys(BaseLockedState):
 
     # Mapeamento entre nomes de chave OCPP e atributos do settings (quando houver)
     _SETTINGS_ATTR_MAP: Dict[str, str] = {
+        "NumberOfConnectors": "connectors_qty",
         "HeartbeatInterval": "heartbeat_interval",
         "ConnectionTimeOut": "connection_timeout",
         "ResetRetries": "reset_retries",

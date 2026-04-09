@@ -63,7 +63,7 @@ class InteractiveHandler:
 
     def _print_welcome(self):
         print("\n" + "="*70)
-        print("Sistema de Controle do Posto de Recarga - OCPP 1.6")
+        print(" "*9+"Sistema de Controle do Posto de Recarga - OCPP 1.6")
         print("="*70)
         print("Comandos disponíveis:")
 
@@ -227,6 +227,9 @@ class InteractiveHandler:
             logger.error(f" Erro na execução do cenário: {e}", exc_info=True)
             print(f" Erro durante execução: {e}")
 
+        finally:
+            print("\n" + "-"*70)
+
     async def _show_status(self):
         """Mostra status atual do sistema."""
         print(f"\nStatus do Sistema:")
@@ -234,7 +237,7 @@ class InteractiveHandler:
             print(f"  Station ID: {self.cp.station_id}")
             print(f"  Qtd Conectores: {state.connectors_qty}")
             print(f"  Registrado: {'OK' if state.registration else 'X'}")
-            print(f"  Transação ativa: {self.cp._transaction_id if self.cp._transaction_id else 'Nenhuma'}")
+            #print(f"  Transação ativa: {self.cp._transaction_id if self.cp._transaction_id else 'Nenhuma'}")
         else:
             print("!!! Posto desconectado do servidor !!!")
 

@@ -14,7 +14,7 @@ from store.conf_keys import configuration_keys
 from store.meters import meters
 from config.settings import settings
 from .base import setup_logger
-from .context import set_transaction_id
+from .context import set_transaction_id, get_connector_id, set_connector_id
 
 logger = setup_logger("cp_client")
 
@@ -265,12 +265,16 @@ class ChargePoint(BaseChargePoint):
             while not self._stop_requested:
                 """Utiliza Time Scale para adequar ao tempo de simulação."""
                 await asyncio.sleep(configuration_keys.get("ClockAlignedDataInterval")/settings.time_scale)
-                for connector in state.connectors:
+
+                #for connector in state.connectors:
+                actual_connector_id = get_connector_id()
+                for connectorId in range(1, settings.connectors_qty + 1):
                     try:
+                        connector = state.get_connector_state(connectorId)
                         timestamp = state.get_current_time()
-                        
+
                         sampled_values = meters.get_meter_value(
-                            connector_id=connector.connector_id,
+                            connector_id=connector.get("connector_id"),
                             measurands=configuration_keys.get("MeterValuesAlignedData"),
                             context=ReadingContext.sample_clock 
                         )
@@ -282,16 +286,20 @@ class ChargePoint(BaseChargePoint):
                         }
                         
                         request = call.MeterValues(
-                            connector_id=connector.connector_id,
+                            connector_id=connector.get("connector_id"),
                             transaction_id=None,
                             meter_value=[meter_value_entry]
                         )
                       
                         response = await self.call(request)
+
+                        set_connector_id(connectorId)
                         logger.info(f"MeterValues.req enviado 'context':{ReadingContext.sample_clock}")
                     except Exception as e:
                         logger.error(f"Falha ao enviar MeterValues.req 'context':{ReadingContext.sample_periodic}: {e}")
-                        continue  
+                        continue 
+                    finally:
+                        set_connector_id(actual_connector_id)
                         
         except asyncio.CancelledError:
             logger.info("Tarefa de PeriodicMeterValues cancelada")
@@ -351,15 +359,18 @@ async def run_charge_point_with_reconnect(
                     )
                     
                     # Inicializa os conectores na store global
-                    state.initialize_connectors(configuration_keys.get("NumberOfConnectors")) 
+                    state.initialize_connectors(configuration_keys.get("NumberOfConnectors"))
 
                     # Envia StatusNotification para cada conector
-                    for connector in state.connectors:
+                    #for connector in state.connectors:
+                    for connectorId in range(1, settings.connectors_qty + 1):
+                        connector = state.get_connector_state(connectorId)
+                            
                         await cp.send_status_notification(
-                            connector_id=connector.connector_id,
-                            status=connector.status,
-                            error_code=connector.error_code,
-                            info=connector.info
+                            connector_id=connector.get("connector_id"),
+                            status=connector.get("status"),
+                            error_code=connector.get("error_code"),
+                            info=connector.get("info")
                         )
 
                     # Notifica conexão estabelecida
